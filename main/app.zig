@@ -15,13 +15,27 @@ fn main() callconv(.c) void {
     // idf.heap.HeapCapsAllocator
     // idf.heap.MultiHeapAllocator
     // idf.heap.VPortAllocator
+    log.warn("HWM={} bytes", .{idf.rtos.Task.getStackHighWaterMark(null)});
+    log.warn("HWM={} bytes", .{idf.rtos.Task.getStackHighWaterMark(null)});
+    log.warn("{s}:{}: Stack HWM={} bytes", .{@src().file, @src().line, idf.rtos.Task.getStackHighWaterMark(null)});
+    log.warn("{s}:{}: Stack HWM={} bytes", .{@src().file, @src().line, idf.rtos.Task.getStackHighWaterMark(null)});
 
     var heap = idf.heap.HeapCapsAllocator.init(.{ .@"8bit" = true });
+    log.warn("{s}:{}: Stack HWM={} bytes", .{@src().file, @src().line, idf.rtos.Task.getStackHighWaterMark(null)});
+    log.warn("{s}:{}: Stack HWM={} bytes", .{@src().file, @src().line, idf.rtos.Task.getStackHighWaterMark(null)});
     var arena = std.heap.ArenaAllocator.init(heap.allocator());
+    log.warn("{s}:{}: Stack HWM={} bytes", .{@src().file, @src().line, idf.rtos.Task.getStackHighWaterMark(null)});
+    log.warn("{s}:{}: Stack HWM={} bytes", .{@src().file, @src().line, idf.rtos.Task.getStackHighWaterMark(null)});
     defer arena.deinit();
+    log.warn("{s}:{}: Stack HWM={} bytes", .{@src().file, @src().line, idf.rtos.Task.getStackHighWaterMark(null)});
+    log.warn("{s}:{}: Stack HWM={} bytes", .{@src().file, @src().line, idf.rtos.Task.getStackHighWaterMark(null)});
     const allocator = arena.allocator();
+    log.warn("{s}:{}: Stack HWM={} bytes", .{@src().file, @src().line, idf.rtos.Task.getStackHighWaterMark(null)});
+    log.warn("{s}:{}: Stack HWM={} bytes", .{@src().file, @src().line, idf.rtos.Task.getStackHighWaterMark(null)});
 
     log.info("Hello, world from Zig!", .{});
+    log.warn("{s}:{}: Stack HWM={} bytes", .{@src().file, @src().line, idf.rtos.Task.getStackHighWaterMark(null)});
+    log.warn("{s}:{}: Stack HWM={} bytes", .{@src().file, @src().line, idf.rtos.Task.getStackHighWaterMark(null)});
 
     log.info(
         \\[Zig Info]
@@ -31,22 +45,35 @@ fn main() callconv(.c) void {
         @as([]const u8, builtin.zig_version_string),
         @tagName(builtin.zig_backend),
     });
+    log.warn("{s}:{}: Stack HWM={} bytes", .{@src().file, @src().line, idf.rtos.Task.getStackHighWaterMark(null)});
+    log.warn("{s}:{}: Stack HWM={} bytes", .{@src().file, @src().line, idf.rtos.Task.getStackHighWaterMark(null)});
 
     log.info(
         \\[ESP-IDF Info]
         \\* Version: {s}
     , .{ver.get().toString(allocator)});
+    log.warn("{s}:{}: Stack HWM={} bytes", .{@src().file, @src().line, idf.rtos.Task.getStackHighWaterMark(null)});
+    log.warn("{s}:{}: Stack HWM={} bytes", .{@src().file, @src().line, idf.rtos.Task.getStackHighWaterMark(null)});
 
+    const t = heap.totalSize();
+    log.warn("{s}:{}: Stack HWM={} bytes", .{@src().file, @src().line, idf.rtos.Task.getStackHighWaterMark(null)});
+    log.warn("{s}:{}: Stack HWM={} bytes", .{@src().file, @src().line, idf.rtos.Task.getStackHighWaterMark(null)});
+    const f = heap.freeSize();
+    log.warn("{s}:{}: Stack HWM={} bytes", .{@src().file, @src().line, idf.rtos.Task.getStackHighWaterMark(null)});
+    log.warn("{s}:{}: Stack HWM={} bytes", .{@src().file, @src().line, idf.rtos.Task.getStackHighWaterMark(null)});
+    const m = heap.minimumFreeSize();
+    log.warn("{s}:{}: Stack HWM={} bytes", .{@src().file, @src().line, idf.rtos.Task.getStackHighWaterMark(null)});
+    log.warn("{s}:{}: Stack HWM={} bytes", .{@src().file, @src().line, idf.rtos.Task.getStackHighWaterMark(null)});
     log.info(
         \\[Memory Info]
         \\* Total: {d}
         \\* Free: {d}
         \\* Minimum: {d}
     , .{
-        heap.totalSize(),
-        heap.freeSize(),
-        heap.minimumFreeSize(),
+        t, f, m
     });
+    log.warn("{s}:{}: Stack HWM={} bytes", .{@src().file, @src().line, idf.rtos.Task.getStackHighWaterMark(null)});
+    log.warn("{s}:{}: Stack HWM={} bytes", .{@src().file, @src().line, idf.rtos.Task.getStackHighWaterMark(null)});
 
     log.info("Let's have a look at your shiny {s} - {s} system! :)", .{
         @tagName(builtin.cpu.arch),
@@ -64,6 +91,9 @@ fn main() callconv(.c) void {
     _ = idf.rtos.Task.create(fooTask, "foo", 1024 * 3, null, 1) catch @panic("Task foo not created");
     _ = idf.rtos.Task.create(barTask, "bar", 1024 * 3, null, 2) catch @panic("Task bar not created");
     _ = idf.rtos.Task.create(blinkTask, "blink", 1024 * 2, null, 5) catch @panic("Task blink not created");
+
+    log.warn("{s}:{}: Stack HWM={} bytes", .{@src().file, @src().line, idf.rtos.Task.getStackHighWaterMark(null)});
+    log.warn("{s}:{}: Stack HWM={} bytes", .{@src().file, @src().line, idf.rtos.Task.getStackHighWaterMark(null)});
 }
 
 fn blinkLED(delay_ms: u32) !void {
