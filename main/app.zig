@@ -10,28 +10,15 @@ comptime {
 
 fn main() callconv(.c) void {
     // This allocator is safe to use as the backing allocator w/ arena allocator
-
+    
     // custom allocators (based on old raw_c_allocator)
     // idf.heap.HeapCapsAllocator
     // idf.heap.MultiHeapAllocator
     // idf.heap.VPortAllocator
-    log.warn("HWM={} bytes", .{idf.rtos.Task.getStackHighWaterMark(null)});
-    log.warn("HWM={} bytes", .{idf.rtos.Task.getStackHighWaterMark(null)});
-    log.warn("{s}:{}: Stack HWM={} bytes", .{@src().file, @src().line, idf.rtos.Task.getStackHighWaterMark(null)});
-    log.warn("{s}:{}: Stack HWM={} bytes", .{@src().file, @src().line, idf.rtos.Task.getStackHighWaterMark(null)});
-
     var heap = idf.heap.HeapCapsAllocator.init(.{ .@"8bit" = true });
-    log.warn("{s}:{}: Stack HWM={} bytes", .{@src().file, @src().line, idf.rtos.Task.getStackHighWaterMark(null)});
-    log.warn("{s}:{}: Stack HWM={} bytes", .{@src().file, @src().line, idf.rtos.Task.getStackHighWaterMark(null)});
     var arena = std.heap.ArenaAllocator.init(heap.allocator());
-    log.warn("{s}:{}: Stack HWM={} bytes", .{@src().file, @src().line, idf.rtos.Task.getStackHighWaterMark(null)});
-    log.warn("{s}:{}: Stack HWM={} bytes", .{@src().file, @src().line, idf.rtos.Task.getStackHighWaterMark(null)});
     defer arena.deinit();
-    log.warn("{s}:{}: Stack HWM={} bytes", .{@src().file, @src().line, idf.rtos.Task.getStackHighWaterMark(null)});
-    log.warn("{s}:{}: Stack HWM={} bytes", .{@src().file, @src().line, idf.rtos.Task.getStackHighWaterMark(null)});
     const allocator = arena.allocator();
-    log.warn("{s}:{}: Stack HWM={} bytes", .{@src().file, @src().line, idf.rtos.Task.getStackHighWaterMark(null)});
-    log.warn("{s}:{}: Stack HWM={} bytes", .{@src().file, @src().line, idf.rtos.Task.getStackHighWaterMark(null)});
 
     log.info("Hello, world from Zig!", .{});
     log.warn("{s}:{}: Stack HWM={} bytes", .{@src().file, @src().line, idf.rtos.Task.getStackHighWaterMark(null)});
@@ -69,8 +56,21 @@ fn main() callconv(.c) void {
         \\* Total: {d}
         \\* Free: {d}
         \\* Minimum: {d}
+        \\* Aardvarks: {d}
     , .{
-        t, f, m
+        t, f, m, 100,
+
+    });
+    log.warn("{s}:{}: Stack HWM={} bytes", .{@src().file, @src().line, idf.rtos.Task.getStackHighWaterMark(null)});
+    log.warn("{s}:{}: Stack HWM={} bytes", .{@src().file, @src().line, idf.rtos.Task.getStackHighWaterMark(null)});
+    log.info(
+        \\[Memory Info]
+        \\* Total: {d}
+        \\* Free: {d}
+        \\* Minimum: {d}
+    , .{
+        t, f, m,
+
     });
     log.warn("{s}:{}: Stack HWM={} bytes", .{@src().file, @src().line, idf.rtos.Task.getStackHighWaterMark(null)});
     log.warn("{s}:{}: Stack HWM={} bytes", .{@src().file, @src().line, idf.rtos.Task.getStackHighWaterMark(null)});
