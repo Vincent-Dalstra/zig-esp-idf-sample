@@ -152,6 +152,7 @@ extern struct stat;
 /* Include AFTER all the protections */
 #include "pthread_stubs.h"
 #include "bindings.h"
+#include "bindings_extra.h"
 #include "bt_stubs.h"
 #include "wifi_stubs.h"
 

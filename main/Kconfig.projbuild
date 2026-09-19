@@ -89,6 +89,8 @@ menu "Example Configuration"
             bool "Matter Light"
         config ZIG_EXAMPLE_PANIC_CHECK
             bool "Panic & Checked Illegal Behaviour"
+        config ZIG_EXAMPLE_PERFMON_BENCHMARK
+            bool "Benchmark functions with perfmon"
     endchoice
 
 endmenu

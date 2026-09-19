@@ -341,6 +341,7 @@ set(INCLUDE_DIRS
     "${IDF_PATH}/components/esp_vfs_console/include"
     "${IDF_PATH}/components/esp_ringbuf/include"
     "${IDF_PATH}/components/esp_usb_cdc_rom_console/include"
+    "${IDF_PATH}/components/perfmon/include"
     "${CMAKE_SOURCE_DIR}/build/config"
 )
 # Toolchain system includes (separate from regular includes)
