@@ -191,11 +191,11 @@ fn sum2(numbers: []i32) i32 {
         \\mov.n     a9, %[len]
         \\mov.n     a8, %[start]
         \\movi.n    %[sum], 0
-        \\loopnez   a9, lend
+        \\loopnez   a9, lend2
         \\l32i.n    a10, a8, 0 
         \\addi.n    a8, a8, 4
         \\add.n    %[sum], %[sum], a10
-        \\lend:
+        \\lend2:
         : [sum] "=r" (-> i32),
         : [start] "r" (start),
           [len] "r" (len),
@@ -210,7 +210,7 @@ fn sum2(numbers: []i32) i32 {
 /// Vectorised zero-overhead loop
 fn testFn3(params: ?*anyopaque) callconv(.c) void {
     const p: *Params = @ptrCast(@alignCast(params.?));
-    p.sum_out.* = sum2(p.numbers);
+    p.sum_out.* = sum3(p.numbers);
 }
 
 /// Vectorised zero-overhead loop
@@ -225,20 +225,32 @@ fn sum3(numbers: []i32) i32 {
 
     return asm (
         \\mov.n     a9, %[len]
+        \\srli      a9, a9, 2
         \\mov.n     a8, %[start]
-        \\movi.n    %[sum], 0
-        \\loopnez   a9, lend
-        \\l32i.n    a10, a8, 0 
-        \\addi.n    a8, a8, 4
-        \\add.n    %[sum], %[sum], a10
-        \\lend:
+        \\ee.zero.q q0
+        \\loopnez   a9, lend3
+        \\ee.vld.128.ip     q1, a8, 16
+        \\ee.vadds.s32      q0, q0, q1
+        \\lend3:
+        \\ee.movi.32.a      q0, %[sum], 0
+        \\ee.movi.32.a      q0, a11, 1
+        \\add.n    %[sum], %[sum], a11
+        \\ee.movi.32.a      q0, a12, 2
+        \\add.n    %[sum], %[sum], a12
+        \\ee.movi.32.a      q0, a13, 3
+        \\add.n    %[sum], %[sum], a13
         : [sum] "=r" (-> i32),
         : [start] "r" (start),
           [len] "r" (len),
         : .{
           .a8 = true,
           .a9 = true,
-          .a10 = true,
+          //   .a10 = true,
+          .a11 = true,
+          .a12 = true,
+          .a13 = true,
+          .q0 = true,
+          .q1 = true,
           .memory = true,
         });
 }
