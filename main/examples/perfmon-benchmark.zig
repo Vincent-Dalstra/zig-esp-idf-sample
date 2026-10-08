@@ -9,12 +9,12 @@ const assert = std.debug.assert;
 
 const log = std.log.scoped(.http_srv);
 
-const TOTAL_CALL_AMOUNT: c_int = 100;
+const TOTAL_CALL_AMOUNT: c_int = 200;
 const PERFMON_TRACELEVEL: c_int = -1;
 
 // export var repeat_count: usize = 100; // Defeat constant loop unrolling
 
-const ARRAY_LENGTH: i32 = 100;
+const ARRAY_LENGTH: i32 = 400;
 const EXPECTED: i32 = (ARRAY_LENGTH - 1) * (ARRAY_LENGTH / 2);
 
 const Params = struct {
@@ -104,6 +104,18 @@ export fn app_main() callconv(.c) void {
 
     idf.rtos.Task.delayMs(1000);
 
+    for (&numbers, 0..) |*n, i| {
+        n.* = @intCast(i);
+    }
+
+    log.info("testFn4: better vectorisation", .{});
+    pm_config.call_function = testFn4;
+    _ = sys.xtensa_perfmon_exec(&pm_config);
+
+    std.log.info("Result = {}", .{sum});
+    // log.info("testFn0: sum = {}", .{sum});
+
+    idf.rtos.Task.delayMs(1000);
     log.info("The end!", .{});
 }
 
@@ -232,6 +244,56 @@ fn sum3(numbers: []i32) i32 {
         \\ee.vld.128.ip     q1, a8, 16
         \\ee.vadds.s32      q0, q0, q1
         \\lend3:
+        // Sum the 4 results
+        \\ee.movi.32.a      q0, %[sum], 0
+        \\ee.movi.32.a      q0, a11, 1
+        \\add.n    %[sum], %[sum], a11
+        \\ee.movi.32.a      q0, a12, 2
+        \\add.n    %[sum], %[sum], a12
+        \\ee.movi.32.a      q0, a13, 3
+        \\add.n    %[sum], %[sum], a13
+        : [sum] "=r" (-> i32),
+        : [start] "r" (start),
+          [len] "r" (len),
+        : .{
+          .a8 = true,
+          .a9 = true,
+          //   .a10 = true,
+          .a11 = true,
+          .a12 = true,
+          .a13 = true,
+          .q0 = true,
+          .q1 = true,
+          .memory = true,
+        });
+}
+
+/// Vectorised zero-overhead loop
+fn testFn4(params: ?*anyopaque) callconv(.c) void {
+    const p: *Params = @ptrCast(@alignCast(params.?));
+    p.sum_out.* = sum4(p.numbers);
+}
+
+/// Vectorised zero-overhead loop
+fn sum4(numbers: []i32) i32 {
+    assert(std.mem.isAligned(@intFromPtr(numbers.ptr), 16));
+    assert(numbers.len % 4 == 0);
+    // assert(numbers.len > 0);
+
+    const start = numbers.ptr;
+    const len = numbers.len;
+    assert(len > 0);
+
+    return asm (
+        \\mov.n     a9, %[len]
+        \\srli      a9, a9, 2
+        \\mov.n     a8, %[start]
+        \\ee.zero.q q0
+        \\ee.vld.128.ip     q1, a8, 16
+        \\loopnez   a9, lend4
+        \\ee.vadds.s32.ld.incp  q1, a8, q0, q0, q1      // (1) q0 = q0 + q1 (2) Read q1 from a8 (3) a8 += 16
+        \\lend4:
+        // Sum the 4 results
         \\ee.movi.32.a      q0, %[sum], 0
         \\ee.movi.32.a      q0, a11, 1
         \\add.n    %[sum], %[sum], a11
