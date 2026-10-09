@@ -65,6 +65,7 @@ pub const wifi = switch (currentTarget) {
     else => @import("wifi"),
 };
 pub const hw_support = @import("hw_support");
+pub const perfmon = @import("perfmon");
 pub const sys = @import("sys");
 
 const Device = enum {

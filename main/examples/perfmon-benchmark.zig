@@ -5,11 +5,13 @@ const ver = idf.ver.Version;
 const mem = std.mem;
 const sys = idf.sys;
 
+const perfmon = idf.perfmon;
+
 const assert = std.debug.assert;
 
 const log = std.log.scoped(.http_srv);
 
-const TOTAL_CALL_AMOUNT: c_int = 200;
+const TOTAL_CALL_AMOUNT: c_int = 1;
 const PERFMON_TRACELEVEL: c_int = -1;
 
 // export var repeat_count: usize = 100; // Defeat constant loop unrolling
@@ -59,6 +61,9 @@ export fn app_main() callconv(.c) void {
     log.info("testFn0: zig loop", .{});
     pm_config.call_function = testFn0;
     _ = sys.xtensa_perfmon_exec(&pm_config);
+
+    const P1 = perfmon.Benchmark(sum0);
+    sum = P1.run(.{&numbers});
 
     std.log.info("Result = {}", .{sum});
     // log.info("testFn0: sum = {}", .{sum});

@@ -95,6 +95,7 @@ const module_specs = [_]ModuleSpec{
     .{ .name = "event", .file = "event.zig", .deps = &.{ "sys", "error" } },
     .{ .name = "wdt", .file = "wdt.zig", .deps = &.{ "sys", "error" } },
     .{ .name = "nimble", .file = "nimble.zig", .deps = &.{ "sys", "error" } },
+    .{ .name = "perfmon", .file = "perfmon.zig", .deps = &.{ "sys", "error" } },
     // ── depend on sys + log ────────────────────────
     // ── depend on sys + hw_support ────────────────────────
     .{ .name = "panic", .file = "panic.zig", .deps = &.{ "sys", "hw_support" } },
@@ -107,6 +108,7 @@ const esp_idf_exports = [_][]const u8{
     "i2c",         "i2s",    "spi",       "now",       "pulse", "http",       "dsp",    "panic",
     "rtos",        "nvs",    "partition", "sleep",     "event", "wdt",        "nimble", "hosted",
     "wifi_remote", "timer",  "ledc",      "twai",      "pm",    "pthread",    "matter", "hw_support",
+    "perfmon",
 };
 
 pub fn idf_wrapped_modules(b: *std.Build) *std.Build.Module {
