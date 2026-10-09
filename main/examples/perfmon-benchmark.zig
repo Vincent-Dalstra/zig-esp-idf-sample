@@ -37,49 +37,24 @@ const pm_check_table: [14]u32 = .{
 export fn app_main() callconv(.c) void {
     var numbers: [ARRAY_LENGTH]i32 align(16) = undefined;
     var sum: i32 = undefined;
-    var params: Params = .{
-        .numbers = &numbers,
-        .sum_out = &sum,
-    };
-
-    var pm_config: sys.xtensa_perfmon_config_t = .{
-        .counters_size = pm_check_table.len / 2,
-        .select_mask = &pm_check_table,
-        .repeat_count = TOTAL_CALL_AMOUNT,
-        .max_deviation = 1,
-        .call_function = undefined,
-        .call_params = @ptrCast(&params),
-        .callback = sys.xtensa_perfmon_view_cb,
-        .callback_params = null, // stdout
-        .tracelevel = PERFMON_TRACELEVEL,
-    };
 
     for (&numbers, 0..) |*n, i| {
         n.* = @intCast(i);
     }
 
     log.info("testFn0: zig loop", .{});
-    pm_config.call_function = testFn0;
-    _ = sys.xtensa_perfmon_exec(&pm_config);
-
-    const P1 = perfmon.Benchmark(sum0);
-    sum = P1.run(.{&numbers});
-
+    sum = perfmon.Benchmark(sum0).run(.{&numbers});
     std.log.info("Result = {}", .{sum});
-    // log.info("testFn0: sum = {}", .{sum});
 
     idf.rtos.Task.delayMs(1000);
-
     for (&numbers, 0..) |*n, i| {
         n.* = @intCast(i);
     }
 
     log.info("testFn1: asm loop", .{});
-    pm_config.call_function = testFn1;
-    _ = sys.xtensa_perfmon_exec(&pm_config);
+    sum = perfmon.Benchmark(sum0).run(.{&numbers});
 
     std.log.info("Result = {}", .{sum});
-    // log.info("testFn0: sum = {}", .{sum});
 
     idf.rtos.Task.delayMs(1000);
 
@@ -88,11 +63,8 @@ export fn app_main() callconv(.c) void {
     }
 
     log.info("testFn2: zero-overhead loop", .{});
-    pm_config.call_function = testFn2;
-    _ = sys.xtensa_perfmon_exec(&pm_config);
-
+    sum = perfmon.Benchmark(sum2).run(.{&numbers});
     std.log.info("Result = {}", .{sum});
-    // log.info("testFn0: sum = {}", .{sum});
 
     idf.rtos.Task.delayMs(1000);
 
@@ -101,12 +73,8 @@ export fn app_main() callconv(.c) void {
     }
 
     log.info("testFn3: vectorised zero-overhead loop", .{});
-    pm_config.call_function = testFn3;
-    _ = sys.xtensa_perfmon_exec(&pm_config);
-
+    sum = perfmon.Benchmark(sum3).run(.{&numbers});
     std.log.info("Result = {}", .{sum});
-    // log.info("testFn0: sum = {}", .{sum});
-
     idf.rtos.Task.delayMs(1000);
 
     for (&numbers, 0..) |*n, i| {
@@ -114,11 +82,8 @@ export fn app_main() callconv(.c) void {
     }
 
     log.info("testFn4: better vectorisation", .{});
-    pm_config.call_function = testFn4;
-    _ = sys.xtensa_perfmon_exec(&pm_config);
-
+    sum = perfmon.Benchmark(sum4).run(.{&numbers});
     std.log.info("Result = {}", .{sum});
-    // log.info("testFn0: sum = {}", .{sum});
 
     idf.rtos.Task.delayMs(1000);
     log.info("The end!", .{});
@@ -134,12 +99,6 @@ pub const std_options: std.Options = .{
 };
 
 /// Zig `for` loop
-fn testFn0(params: ?*anyopaque) callconv(.c) void {
-    const p: *Params = @ptrCast(@alignCast(params.?));
-    p.sum_out.* = sum0(p.numbers);
-}
-
-/// Zig `for` loop
 fn sum0(numbers: []i32) i32 {
     assert(std.mem.isAligned(@intFromPtr(numbers.ptr), 16));
     assert(numbers.len % 4 == 0);
@@ -150,12 +109,6 @@ fn sum0(numbers: []i32) i32 {
         sum += n;
     }
     return sum;
-}
-
-/// Assembly loop - should be the same performance as zig `for`
-fn testFn1(params: ?*anyopaque) callconv(.c) void {
-    const p: *Params = @ptrCast(@alignCast(params.?));
-    p.sum_out.* = sum1(p.numbers);
 }
 
 /// Assembly loop - should be the same performance as zig `for`
@@ -189,12 +142,6 @@ fn sum1(numbers: []i32) i32 {
 }
 
 /// Zero-overhead loop. One less instruction, two less pipeline bubbles
-fn testFn2(params: ?*anyopaque) callconv(.c) void {
-    const p: *Params = @ptrCast(@alignCast(params.?));
-    p.sum_out.* = sum2(p.numbers);
-}
-
-/// Zero-overhead loop. One less instruction, two less pipeline bubbles
 fn sum2(numbers: []i32) i32 {
     assert(std.mem.isAligned(@intFromPtr(numbers.ptr), 16));
     assert(numbers.len % 4 == 0);
@@ -222,12 +169,6 @@ fn sum2(numbers: []i32) i32 {
           .a10 = true,
           .memory = true,
         });
-}
-
-/// Vectorised zero-overhead loop
-fn testFn3(params: ?*anyopaque) callconv(.c) void {
-    const p: *Params = @ptrCast(@alignCast(params.?));
-    p.sum_out.* = sum3(p.numbers);
 }
 
 /// Vectorised zero-overhead loop
@@ -271,12 +212,6 @@ fn sum3(numbers: []i32) i32 {
           .q1 = true,
           .memory = true,
         });
-}
-
-/// Vectorised zero-overhead loop
-fn testFn4(params: ?*anyopaque) callconv(.c) void {
-    const p: *Params = @ptrCast(@alignCast(params.?));
-    p.sum_out.* = sum4(p.numbers);
 }
 
 /// Vectorised zero-overhead loop
