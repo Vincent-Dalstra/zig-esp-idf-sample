@@ -48,7 +48,7 @@ pub fn Benchmark(function: anytype) type {
         @compileError("Benchmark expects a function type");
 
     const function_info = info.@"fn";
-    if (function_info.is_var_args)
+    if (function_info.attrs.varargs)
         @compileError("Cannot create ArgsTuple for variadic function");
 
     const Result = function_info.return_type.?;
