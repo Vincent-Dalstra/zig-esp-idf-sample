@@ -81,6 +81,7 @@ fn run_optimised_functions() !void {
         std.log.info("Result = {}", .{result});
         if (result != EXPECTED) @panic("");
     }
+    idf.rtos.Task.delayMs(0);
     {
         log.info("zero-overhead loop", .{});
         const result = try perfmon.Benchmark(total.zero_overhead_loop_0).run(checks, .{&numbers});
