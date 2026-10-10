@@ -32,53 +32,72 @@ export fn app_main() callconv(.c) void {
     const result0 = add_up_numbers(&numbers);
 
     log.info("benchmark add_up_numbers()", .{});
-    const result1 = perfmon.Benchmark(total.sum0).run(checks, .{&numbers});
+    const result1 = perfmon.Benchmark(total.zig_loop).run(checks, .{&numbers}) catch {
+        @panic("Benchmark failed");
+    };
 
     std.log.info("Result = {}", .{result1});
     assert(result0 == result1);
 
     idf.rtos.Task.delayMs(2000);
-    run_optimised_functions();
-
+    run_optimised_functions() catch {
+        @panic("Benchmark failed");
+    };
     log.info("The end!", .{});
 }
 
-const ARRAY_LENGTH: i32 = 400;
+const ARRAY_LENGTH: i32 = 1000;
 const EXPECTED: i32 = (ARRAY_LENGTH - 1) * (ARRAY_LENGTH / 2);
 
-fn run_optimised_functions() void {
+fn run_optimised_functions() !void {
     var numbers: [ARRAY_LENGTH]i32 align(16) = undefined;
     for (&numbers, 0..) |*n, i| {
         n.* = @intCast(i);
     }
 
     {
-        log.info("testFn0: zig loop", .{});
-        const result = perfmon.Benchmark(total.sum0).run(checks, .{&numbers});
+        log.info("do nothing", .{});
+        const result = try perfmon.Benchmark(total.do_nothing).run(checks, .{&numbers});
+        std.log.info("Result = {}", .{result});
+    }
+    idf.rtos.Task.delayMs(0);
+    {
+        log.info("zig loop", .{});
+        const result = try perfmon.Benchmark(total.zig_loop).run(checks, .{&numbers});
+        std.log.info("Result = {}", .{result});
+        if (result != EXPECTED) @panic("");
+    }
+    idf.rtos.Task.delayMs(0);
+    {
+        log.info("asm loop (should be similar to zig loop)", .{});
+        const result = try perfmon.Benchmark(total.basic_loop_0).run(checks, .{&numbers});
+        std.log.info("Result = {}", .{result});
+        if (result != EXPECTED) @panic("");
+    }
+    idf.rtos.Task.delayMs(0);
+    {
+        log.info("asm loop, without the data hazard", .{});
+        const result = try perfmon.Benchmark(total.basic_loop_1).run(checks, .{&numbers});
         std.log.info("Result = {}", .{result});
         if (result != EXPECTED) @panic("");
     }
     {
-        log.info("testFn1: asm loop", .{});
-        const result = perfmon.Benchmark(total.sum1).run(checks, .{&numbers});
+        log.info("zero-overhead loop", .{});
+        const result = try perfmon.Benchmark(total.zero_overhead_loop_0).run(checks, .{&numbers});
         std.log.info("Result = {}", .{result});
         if (result != EXPECTED) @panic("");
     }
+    idf.rtos.Task.delayMs(0);
     {
-        log.info("testFn2: zero-overhead loop", .{});
-        const result = perfmon.Benchmark(total.sum2).run(checks, .{&numbers});
+        log.info("vectorised zero-overhead loop", .{});
+        const result = try perfmon.Benchmark(total.vectorised_0).run(checks, .{&numbers});
         std.log.info("Result = {}", .{result});
         if (result != EXPECTED) @panic("");
     }
+    idf.rtos.Task.delayMs(0);
     {
-        log.info("testFn3: vectorised zero-overhead loop", .{});
-        const result = perfmon.Benchmark(total.sum3).run(checks, .{&numbers});
-        std.log.info("Result = {}", .{result});
-        if (result != EXPECTED) @panic("");
-    }
-    {
-        log.info("testFn4: better vectorisation", .{});
-        const result = perfmon.Benchmark(total.sum4).run(checks, .{&numbers});
+        log.info("improved vector code", .{});
+        const result = try perfmon.Benchmark(total.vectorised_1).run(checks, .{&numbers});
         std.log.info("Result = {}", .{result});
         if (result != EXPECTED) @panic("");
     }
@@ -93,9 +112,14 @@ pub const std_options: std.Options = .{
     .logFn = idf.log.espLogFn,
 };
 
+/// Add up the numbers in a `[]i32`
+///
+/// Assumes the array is 128-bit aligned, to make the vectorised
+/// code a bit simpler. Otherwise you need a special case
+/// for head & tail.
 const total = struct {
     /// Zig `for` loop
-    fn sum0(numbers: []const i32) i32 {
+    fn zig_loop(numbers: []const i32) i32 {
         assert(std.mem.isAligned(@intFromPtr(numbers.ptr), 16));
         assert(numbers.len % 4 == 0);
         assert(numbers.len > 0);
@@ -107,8 +131,31 @@ const total = struct {
         return sum;
     }
 
-    /// Assembly loop - should be the same performance as zig `for`
-    fn sum1(numbers: []const i32) i32 {
+    /// Provides a baseline to compare the rest against
+    fn do_nothing(numbers: []const i32) i32 {
+        assert(std.mem.isAligned(@intFromPtr(numbers.ptr), 16));
+        assert(numbers.len % 4 == 0);
+        assert(numbers.len > 0);
+
+        const start = numbers.ptr;
+        const len = numbers.len;
+        assert(len > 0);
+
+        return asm volatile (
+            \\nop
+            : [sum] "=r" (-> i32),
+            : [start] "r" (start),
+              [len] "r" (len),
+            : .{
+              .a8 = true,
+              .a9 = true,
+              .a10 = true,
+            });
+    }
+
+    /// Assembly loop - intended to be as similar as possible to the
+    /// zig loop, give or take a few cycles.
+    fn basic_loop_0(numbers: []const i32) i32 {
         assert(std.mem.isAligned(@intFromPtr(numbers.ptr), 16));
         assert(numbers.len % 4 == 0);
         assert(numbers.len > 0);
@@ -121,12 +168,15 @@ const total = struct {
             \\mov.n     a9, %[len]
             \\mov.n     a8, %[start]
             \\movi.n    %[sum], 0
-            \\lstart:
-            \\l32i.n    a10, a8, 0 
+            // Having this NOP saves one cycle per iteration.
+            \\nop
+            \\lstart0:
+            \\l32i.n    a10, a8, 0
+            // Pipeline bubble occurs here, because a10 is not yet ready
+            \\add.n     %[sum], a10, %[sum]
             \\addi.n    a8, a8, 4
-            \\add.n    %[sum], %[sum], a10
             \\addi.n    a9, a9, -1
-            \\bnez      a9, lstart
+            \\bnez      a9, lstart0
             : [sum] "=r" (-> i32),
             : [start] "r" (start),
               [len] "r" (len),
@@ -137,8 +187,51 @@ const total = struct {
             });
     }
 
-    /// Zero-overhead loop. One less instruction, two less pipeline bubbles
-    fn sum2(numbers: []const i32) i32 {
+    /// Assembly loop
+    /// Swapping two instructions prevents a 1-cycle read-hazard
+    /// resulting in 1 less pipeline bubble per iteration.
+    fn basic_loop_1(numbers: []const i32) i32 {
+        assert(std.mem.isAligned(@intFromPtr(numbers.ptr), 16));
+        assert(numbers.len % 4 == 0);
+        assert(numbers.len > 0);
+
+        const start = numbers.ptr;
+        const len = numbers.len;
+        assert(len > 0);
+
+        return asm volatile (
+            \\mov.n     a9, %[len]
+            \\mov.n     a8, %[start]
+            \\movi.n    %[sum], 0
+            \\nop.n
+            \\lstart1:
+            \\l32i.n    a10, a8, 0
+            \\addi.n    a8, a8, 4
+            \\add.n    %[sum], %[sum], a10
+            \\addi.n    a9, a9, -1
+            \\bnez      a9, lstart1
+            : [sum] "=r" (-> i32),
+            : [start] "r" (start),
+              [len] "r" (len),
+            : .{
+              .a8 = true,
+              .a9 = true,
+              .a10 = true,
+            });
+    }
+
+    /// Uses zero-overhead-loop instructions.
+    ///
+    /// Unlike branch instructions, the CPU can predict that the jump will be
+    /// taken and fetch instructions from the start of the loop. This saves
+    /// two bubbles per iteration.
+    /// It also handles the loop counter automatically, saving another
+    /// instruction.
+    ///
+    /// This comes with some restrictions: e.g. you cannot nest these loops
+    ///
+    /// For more, read Section 4.3.2 of the Xtensa® Instruction Set Architecture (ISA) Summary
+    fn zero_overhead_loop_0(numbers: []const i32) i32 {
         assert(std.mem.isAligned(@intFromPtr(numbers.ptr), 16));
         assert(numbers.len % 4 == 0);
         // assert(numbers.len > 0);
@@ -168,7 +261,13 @@ const total = struct {
     }
 
     /// Vectorised zero-overhead loop
-    fn sum3(numbers: []const i32) i32 {
+    ///
+    /// Uses 128-bit vector instructions to load or add [4]i32 at the
+    /// same time, then reduces them to a single value.
+    ///
+    /// The load instruction also increments the pointer, saving one
+    /// instruction per iteration.
+    fn vectorised_0(numbers: []const i32) i32 {
         assert(std.mem.isAligned(@intFromPtr(numbers.ptr), 16));
         assert(numbers.len % 4 == 0);
         // assert(numbers.len > 0);
@@ -182,6 +281,7 @@ const total = struct {
             \\srli      a9, a9, 2
             \\mov.n     a8, %[start]
             \\ee.zero.q q0
+            // Add [4]i32 per loop
             \\loopnez   a9, lend3
             \\ee.vld.128.ip     q1, a8, 16
             \\ee.vadds.s32      q0, q0, q1
@@ -210,8 +310,12 @@ const total = struct {
             });
     }
 
-    /// Vectorised zero-overhead loop
-    fn sum4(numbers: []const i32) i32 {
+    /// Combined ADD & READ vector instruction
+    ///
+    /// The `ee.vadds.s32.ld.incp` simultaneously adds [4]i32 and reads
+    /// [4]i32 from memory, in a single cycle. It also increments the address
+    /// byt 16 bytes - perfect for reading contiguous memory.
+    fn vectorised_1(numbers: []const i32) i32 {
         assert(std.mem.isAligned(@intFromPtr(numbers.ptr), 16));
         assert(numbers.len % 4 == 0);
         // assert(numbers.len > 0);
@@ -227,7 +331,11 @@ const total = struct {
             \\ee.zero.q q0
             \\ee.vld.128.ip     q1, a8, 16
             \\loopnez   a9, lend4
-            \\ee.vadds.s32.ld.incp  q1, a8, q0, q0, q1      // (1) q0 = q0 + q1 (2) Read q1 from a8 (3) a8 += 16
+            // Combined instruction does 3 things in order:
+            // (1) q0 = q0 + q1
+            // (2) Read q1 from a8
+            // (3) a8 += 16
+            \\ee.vadds.s32.ld.incp  q1, a8, q0, q0, q1
             \\lend4:
             // Sum the 4 results
             \\ee.movi.32.a      q0, %[sum], 0

@@ -10,6 +10,8 @@ const sys = @import("sys");
 // }
 
 pub const pm_check = struct {
+    pub const all: []const u32 = &sys.xtensa_perfmon_select_mask_all;
+
     /// A smaller set of counters that is good for checking how efficiently
     /// a block of assembly runs on the processor.
     pub const simple: []const u32 = &pm_check_table_simple;
@@ -24,10 +26,23 @@ pub const pm_check = struct {
     };
 };
 
-const TOTAL_CALL_AMOUNT = 1;
+const TOTAL_CALL_AMOUNT = 10;
 const PERFMON_TRACELEVEL: c_int = -1;
 
+const BenchmarkError = error{
+    Failed,
+    InconsistentResults, // see `run_not_pure()`
+};
+/// Note: `function` will be executed multiple times!
+/// This is necessary to collect each of the different statistics.
+///
+/// It is recommended that `function` be a 'pure function', i.e.
+/// - No side effects.
+/// - Result depends only on arguments.
+/// Otherwise, you may get interesting Results.
 pub fn Benchmark(function: anytype) type {
+    const Error = BenchmarkError;
+
     const info = @typeInfo(@TypeOf(function));
     if (info != .@"fn")
         @compileError("Benchmark expects a function type");
@@ -53,13 +68,33 @@ pub fn Benchmark(function: anytype) type {
         }
 
         pub fn run(
-            comptime pm_check_table: []const u32,
+            pm_check_table: []const u32,
             args: Args,
-        ) Result {
+        ) Error!Result {
+            return run_internal(pm_check_table, args, true);
+        }
+
+        /// Use this if the function may return a different value on subsequent calls
+        pub fn run_not_pure(
+            pm_check_table: []const u32,
+            args: Args,
+        ) Error!void {
+            _ = run_internal(pm_check_table, args, false);
+        }
+
+        inline fn run_internal(
+            pm_check_table: []const u32,
+            args: Args,
+            compare_results: bool,
+        ) Error!Result {
             var params: TypeErased = .{
                 .result = undefined,
                 .args = args,
             };
+            // Pre-heat IRAM cache
+            typeErasedCall(@ptrCast(&params));
+            const expected_result: Result = params.result;
+
             const pm_config: sys.xtensa_perfmon_config_t = .{
                 .counters_size = pm_check_table.len / 2,
                 .select_mask = pm_check_table.ptr,
@@ -71,7 +106,12 @@ pub fn Benchmark(function: anytype) type {
                 .callback_params = null, // stdout
                 .tracelevel = PERFMON_TRACELEVEL,
             };
-            _ = sys.xtensa_perfmon_exec(&pm_config);
+            const err: sys.esp_err_t = sys.xtensa_perfmon_exec(&pm_config);
+            if (err != 0) return Error.Failed;
+
+            if (compare_results) {
+                if (expected_result != params.result) return Error.InconsistentResults;
+            }
 
             return params.result;
         }
