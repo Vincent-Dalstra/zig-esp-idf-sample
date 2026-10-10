@@ -9,14 +9,19 @@ const sys = @import("sys");
 //     @compileError("Unexpected target architecture: " ++ sys.CONFIG_IDF_TARGET_ARCH);
 // }
 
-const pm_check_table: [14]u32 = .{
-    sys.XTPERF_CNT_CYCLES, sys.XTPERF_MASK_CYCLES, // total cycles
-    sys.XTPERF_CNT_INSN, sys.XTPERF_MASK_INSN_ALL, // total instructions
-    sys.XTPERF_CNT_D_LOAD_U1, sys.XTPERF_MASK_D_LOAD_LOCAL_MEM, // Mem read
-    sys.XTPERF_CNT_D_STORE_U1, sys.XTPERF_MASK_D_STORE_LOCAL_MEM, // Mem write
-    sys.XTPERF_CNT_BUBBLES, sys.XTPERF_MASK_BUBBLES_ALL & (~sys.XTPERF_MASK_BUBBLES_R_HOLD_REG_DEP), // wait for other reasons
-    sys.XTPERF_CNT_BUBBLES, sys.XTPERF_MASK_BUBBLES_R_HOLD_REG_DEP, // Wait for register dependency
-    sys.XTPERF_CNT_OVERFLOW, sys.XTPERF_MASK_OVERFLOW, // Last test cycle
+pub const pm_check = struct {
+    /// A smaller set of counters that is good for checking how efficiently
+    /// a block of assembly runs on the processor.
+    pub const simple: []const u32 = &pm_check_table_simple;
+    const pm_check_table_simple: [14]u32 = .{
+        sys.XTPERF_CNT_CYCLES, sys.XTPERF_MASK_CYCLES, // total cycles
+        sys.XTPERF_CNT_INSN, sys.XTPERF_MASK_INSN_ALL, // total instructions
+        sys.XTPERF_CNT_D_LOAD_U1, sys.XTPERF_MASK_D_LOAD_LOCAL_MEM, // Mem read
+        sys.XTPERF_CNT_D_STORE_U1, sys.XTPERF_MASK_D_STORE_LOCAL_MEM, // Mem write
+        sys.XTPERF_CNT_BUBBLES, sys.XTPERF_MASK_BUBBLES_ALL & (~sys.XTPERF_MASK_BUBBLES_R_HOLD_REG_DEP), // wait for other reasons
+        sys.XTPERF_CNT_BUBBLES, sys.XTPERF_MASK_BUBBLES_R_HOLD_REG_DEP, // Wait for register dependency
+        sys.XTPERF_CNT_OVERFLOW, sys.XTPERF_MASK_OVERFLOW, // Last test cycle
+    };
 };
 
 const TOTAL_CALL_AMOUNT = 1;
@@ -44,17 +49,20 @@ pub fn Benchmark(function: anytype) type {
 
         fn typeErasedCall(params: ?*anyopaque) callconv(.c) void {
             const p: *TypeErased = @ptrCast(@alignCast(params.?));
-            p.result = @call(.auto, function, p.args);
+            p.result = @call(.never_inline, function, p.args);
         }
 
-        pub fn run(args: Args) Result {
+        pub fn run(
+            comptime pm_check_table: []const u32,
+            args: Args,
+        ) Result {
             var params: TypeErased = .{
                 .result = undefined,
                 .args = args,
             };
             const pm_config: sys.xtensa_perfmon_config_t = .{
                 .counters_size = pm_check_table.len / 2,
-                .select_mask = &pm_check_table,
+                .select_mask = pm_check_table.ptr,
                 .repeat_count = TOTAL_CALL_AMOUNT,
                 .max_deviation = 1,
                 .call_function = &typeErasedCall,
