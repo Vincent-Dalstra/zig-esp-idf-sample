@@ -20,20 +20,23 @@ const EXPECTED: i32 = (ARRAY_LENGTH - 1) * (ARRAY_LENGTH / 2);
 
 export fn app_main() callconv(.c) void {
     var numbers: [ARRAY_LENGTH]i32 align(16) = undefined;
-    var sum: i32 = undefined;
-
     for (&numbers, 0..) |*n, i| {
         n.* = @intCast(i);
     }
+
+    run_functions(numbers);
+
+    log.info("The end!", .{});
+}
+
+fn run_functions(numbers: [ARRAY_LENGTH]i32) void {
+    var sum: i32 = undefined;
 
     log.info("testFn0: zig loop", .{});
     sum = perfmon.Benchmark(sum0).run(checks, .{&numbers});
     std.log.info("Result = {}", .{sum});
 
     idf.rtos.Task.delayMs(1000);
-    for (&numbers, 0..) |*n, i| {
-        n.* = @intCast(i);
-    }
 
     log.info("testFn1: asm loop", .{});
     sum = perfmon.Benchmark(sum1).run(checks, .{&numbers});
@@ -42,35 +45,22 @@ export fn app_main() callconv(.c) void {
 
     idf.rtos.Task.delayMs(1000);
 
-    for (&numbers, 0..) |*n, i| {
-        n.* = @intCast(i);
-    }
-
     log.info("testFn2: zero-overhead loop", .{});
     sum = perfmon.Benchmark(sum2).run(checks, .{&numbers});
     std.log.info("Result = {}", .{sum});
 
     idf.rtos.Task.delayMs(1000);
 
-    for (&numbers, 0..) |*n, i| {
-        n.* = @intCast(i);
-    }
-
     log.info("testFn3: vectorised zero-overhead loop", .{});
     sum = perfmon.Benchmark(sum3).run(checks, .{&numbers});
     std.log.info("Result = {}", .{sum});
     idf.rtos.Task.delayMs(1000);
-
-    for (&numbers, 0..) |*n, i| {
-        n.* = @intCast(i);
-    }
 
     log.info("testFn4: better vectorisation", .{});
     sum = perfmon.Benchmark(sum4).run(checks, .{&numbers});
     std.log.info("Result = {}", .{sum});
 
     idf.rtos.Task.delayMs(1000);
-    log.info("The end!", .{});
 }
 
 pub const panic = idf.esp_panic.panic;
@@ -83,7 +73,7 @@ pub const std_options: std.Options = .{
 };
 
 /// Zig `for` loop
-fn sum0(numbers: []i32) i32 {
+fn sum0(numbers: []const i32) i32 {
     assert(std.mem.isAligned(@intFromPtr(numbers.ptr), 16));
     assert(numbers.len % 4 == 0);
     assert(numbers.len > 0);
@@ -96,7 +86,7 @@ fn sum0(numbers: []i32) i32 {
 }
 
 /// Assembly loop - should be the same performance as zig `for`
-fn sum1(numbers: []i32) i32 {
+fn sum1(numbers: []const i32) i32 {
     assert(std.mem.isAligned(@intFromPtr(numbers.ptr), 16));
     assert(numbers.len % 4 == 0);
     assert(numbers.len > 0);
@@ -126,7 +116,7 @@ fn sum1(numbers: []i32) i32 {
 }
 
 /// Zero-overhead loop. One less instruction, two less pipeline bubbles
-fn sum2(numbers: []i32) i32 {
+fn sum2(numbers: []const i32) i32 {
     assert(std.mem.isAligned(@intFromPtr(numbers.ptr), 16));
     assert(numbers.len % 4 == 0);
     // assert(numbers.len > 0);
@@ -156,7 +146,7 @@ fn sum2(numbers: []i32) i32 {
 }
 
 /// Vectorised zero-overhead loop
-fn sum3(numbers: []i32) i32 {
+fn sum3(numbers: []const i32) i32 {
     assert(std.mem.isAligned(@intFromPtr(numbers.ptr), 16));
     assert(numbers.len % 4 == 0);
     // assert(numbers.len > 0);
@@ -199,7 +189,7 @@ fn sum3(numbers: []i32) i32 {
 }
 
 /// Vectorised zero-overhead loop
-fn sum4(numbers: []i32) i32 {
+fn sum4(numbers: []const i32) i32 {
     assert(std.mem.isAligned(@intFromPtr(numbers.ptr), 16));
     assert(numbers.len % 4 == 0);
     // assert(numbers.len > 0);
