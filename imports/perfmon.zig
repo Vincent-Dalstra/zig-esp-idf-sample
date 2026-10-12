@@ -9,20 +9,26 @@ const sys = @import("sys");
 //     @compileError("Unexpected target architecture: " ++ sys.CONFIG_IDF_TARGET_ARCH);
 // }
 
+/// To make things easy, pass an array of which statistics to collect
+/// Only one statistic can be collected at a time, so it has to repeat the
+/// test for each statistic.
+///
+/// Statistics are defined as pairs of 'category' and 'mask', where the mask
+/// depends on the category and controls which ones are collected (combined).
 pub const pm_check = struct {
-    pub const all: []const u32 = &sys.xtensa_perfmon_select_mask_all;
+    pub const all: []const [2]u32 = @ptrCast(&sys.xtensa_perfmon_select_mask_all);
 
     /// A smaller set of counters that is good for checking how efficiently
     /// a block of assembly runs on the processor.
-    pub const simple: []const u32 = &pm_check_table_simple;
-    const pm_check_table_simple: [14]u32 = .{
-        sys.XTPERF_CNT_CYCLES, sys.XTPERF_MASK_CYCLES, // total cycles
-        sys.XTPERF_CNT_INSN, sys.XTPERF_MASK_INSN_ALL, // total instructions
-        sys.XTPERF_CNT_D_LOAD_U1, sys.XTPERF_MASK_D_LOAD_LOCAL_MEM, // Mem read
-        sys.XTPERF_CNT_D_STORE_U1, sys.XTPERF_MASK_D_STORE_LOCAL_MEM, // Mem write
-        sys.XTPERF_CNT_BUBBLES, sys.XTPERF_MASK_BUBBLES_ALL & (~sys.XTPERF_MASK_BUBBLES_R_HOLD_REG_DEP), // wait for other reasons
-        sys.XTPERF_CNT_BUBBLES, sys.XTPERF_MASK_BUBBLES_R_HOLD_REG_DEP, // Wait for register dependency
-        sys.XTPERF_CNT_OVERFLOW, sys.XTPERF_MASK_OVERFLOW, // Last test cycle
+    pub const simple: []const [2]u32 = @ptrCast(&pm_check_table_simple);
+    const pm_check_table_simple: [7][2]u32 = .{
+        .{ sys.XTPERF_CNT_CYCLES, sys.XTPERF_MASK_CYCLES }, // total cycles
+        .{ sys.XTPERF_CNT_INSN, sys.XTPERF_MASK_INSN_ALL }, // total instructions
+        .{ sys.XTPERF_CNT_D_LOAD_U1, sys.XTPERF_MASK_D_LOAD_LOCAL_MEM }, // Mem read
+        .{ sys.XTPERF_CNT_D_STORE_U1, sys.XTPERF_MASK_D_STORE_LOCAL_MEM }, // Mem write
+        .{ sys.XTPERF_CNT_BUBBLES, sys.XTPERF_MASK_BUBBLES_ALL & (~sys.XTPERF_MASK_BUBBLES_R_HOLD_REG_DEP) }, // wait for other reasons
+        .{ sys.XTPERF_CNT_BUBBLES, sys.XTPERF_MASK_BUBBLES_R_HOLD_REG_DEP }, // Wait for register dependency
+        .{ sys.XTPERF_CNT_OVERFLOW, sys.XTPERF_MASK_OVERFLOW }, // Last test cycle
     };
 };
 
@@ -67,7 +73,7 @@ pub fn Benchmark(function: anytype) type {
         }
 
         pub fn run(
-            pm_check_table: []const u32,
+            pm_check_table: []const [2]u32,
             repeat: u32,
             args: Args,
         ) Error!Result {
@@ -76,7 +82,7 @@ pub fn Benchmark(function: anytype) type {
 
         /// Use this if the function may return a different value on subsequent calls
         pub fn run_not_pure(
-            pm_check_table: []const u32,
+            pm_check_table: []const [2]u32,
             repeat: u32,
             args: Args,
         ) Error!void {
@@ -84,7 +90,7 @@ pub fn Benchmark(function: anytype) type {
         }
 
         inline fn run_internal(
-            pm_check_table: []const u32,
+            pm_check_table: []const [2]u32,
             repeat: u32,
             args: Args,
             compare_results: bool,
@@ -98,8 +104,8 @@ pub fn Benchmark(function: anytype) type {
             const expected_result: Result = params.result;
 
             const pm_config: sys.xtensa_perfmon_config_t = .{
-                .counters_size = pm_check_table.len / 2,
-                .select_mask = pm_check_table.ptr,
+                .counters_size = pm_check_table.len,
+                .select_mask = @ptrCast(pm_check_table.ptr),
                 .repeat_count = @intCast(repeat),
                 .max_deviation = 1,
                 .call_function = &typeErasedCall,
