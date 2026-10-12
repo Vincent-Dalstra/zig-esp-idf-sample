@@ -268,6 +268,8 @@ const total = struct {
     ///
     /// The load instruction also increments the pointer, saving one
     /// instruction per iteration.
+    ///
+    /// Note: The array must be align(16) for the instruction to work.
     fn vectorised_0(numbers: []const i32) i32 {
         assert(std.mem.isAligned(@intFromPtr(numbers.ptr), 16));
         assert(numbers.len % 4 == 0);
