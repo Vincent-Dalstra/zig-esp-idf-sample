@@ -26,7 +26,6 @@ pub const pm_check = struct {
     };
 };
 
-const TOTAL_CALL_AMOUNT = 10;
 const PERFMON_TRACELEVEL: c_int = -1;
 
 const BenchmarkError = error{
@@ -69,21 +68,24 @@ pub fn Benchmark(function: anytype) type {
 
         pub fn run(
             pm_check_table: []const u32,
+            repeat: u32,
             args: Args,
         ) Error!Result {
-            return run_internal(pm_check_table, args, true);
+            return run_internal(pm_check_table, repeat, args, true);
         }
 
         /// Use this if the function may return a different value on subsequent calls
         pub fn run_not_pure(
             pm_check_table: []const u32,
+            repeat: u32,
             args: Args,
         ) Error!void {
-            _ = run_internal(pm_check_table, args, false);
+            _ = run_internal(pm_check_table, repeat, args, false);
         }
 
         inline fn run_internal(
             pm_check_table: []const u32,
+            repeat: u32,
             args: Args,
             compare_results: bool,
         ) Error!Result {
@@ -98,7 +100,7 @@ pub fn Benchmark(function: anytype) type {
             const pm_config: sys.xtensa_perfmon_config_t = .{
                 .counters_size = pm_check_table.len / 2,
                 .select_mask = pm_check_table.ptr,
-                .repeat_count = TOTAL_CALL_AMOUNT,
+                .repeat_count = @intCast(repeat),
                 .max_deviation = 1,
                 .call_function = &typeErasedCall,
                 .call_params = @ptrCast(&params),

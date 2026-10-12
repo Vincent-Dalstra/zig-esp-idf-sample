@@ -1,3 +1,13 @@
+/// Benchmark code using perfmon
+///
+/// The XTensa CPU's have have an internal counter which can be used to
+/// collect various statistics. You can use this to verify that your
+/// hand-written assembly optimisations are in fact better!
+///
+/// To demonstrate how these counters work, I wrote a series of more-and-more
+/// optimised functions.
+///
+/// Only works on XTensa targets with Vector instructions
 const std = @import("std");
 const builtin = @import("builtin");
 const idf = @import("esp_idf");
@@ -12,6 +22,8 @@ const assert = std.debug.assert;
 const log = std.log.scoped(.http_srv);
 
 const checks = perfmon.pm_check.simple;
+
+const REPEAT = 10;
 
 /// Function to be benchmarked
 fn add_up_numbers(numbers: []const i32) i32 {
@@ -32,7 +44,7 @@ export fn app_main() callconv(.c) void {
     const result0 = add_up_numbers(&numbers);
 
     log.info("benchmark add_up_numbers()", .{});
-    const result1 = perfmon.Benchmark(total.zig_loop).run(checks, .{&numbers}) catch {
+    const result1 = perfmon.Benchmark(total.zig_loop).run(checks, REPEAT, .{&numbers}) catch {
         @panic("Benchmark failed");
     };
 
@@ -57,48 +69,48 @@ fn run_optimised_functions() !void {
 
     {
         log.info("do nothing", .{});
-        const result = try perfmon.Benchmark(total.do_nothing).run(checks, .{&numbers});
+        const result = try perfmon.Benchmark(total.do_nothing).run(checks, REPEAT, .{&numbers});
         std.log.info("Result = {}", .{result});
     }
     idf.rtos.Task.delayMs(0);
     {
         log.info("zig loop", .{});
-        const result = try perfmon.Benchmark(total.zig_loop).run(checks, .{&numbers});
+        const result = try perfmon.Benchmark(total.zig_loop).run(checks, REPEAT, .{&numbers});
         std.log.info("Result = {}", .{result});
         if (result != EXPECTED) @panic("");
     }
     idf.rtos.Task.delayMs(0);
     {
         log.info("asm loop (should be similar to zig loop)", .{});
-        const result = try perfmon.Benchmark(total.basic_loop_0).run(checks, .{&numbers});
+        const result = try perfmon.Benchmark(total.basic_loop_0).run(checks, REPEAT, .{&numbers});
         std.log.info("Result = {}", .{result});
         if (result != EXPECTED) @panic("");
     }
     idf.rtos.Task.delayMs(0);
     {
         log.info("asm loop, without the data hazard", .{});
-        const result = try perfmon.Benchmark(total.basic_loop_1).run(checks, .{&numbers});
+        const result = try perfmon.Benchmark(total.basic_loop_1).run(checks, REPEAT, .{&numbers});
         std.log.info("Result = {}", .{result});
         if (result != EXPECTED) @panic("");
     }
     idf.rtos.Task.delayMs(0);
     {
         log.info("zero-overhead loop", .{});
-        const result = try perfmon.Benchmark(total.zero_overhead_loop_0).run(checks, .{&numbers});
+        const result = try perfmon.Benchmark(total.zero_overhead_loop_0).run(checks, REPEAT, .{&numbers});
         std.log.info("Result = {}", .{result});
         if (result != EXPECTED) @panic("");
     }
     idf.rtos.Task.delayMs(0);
     {
         log.info("vectorised zero-overhead loop", .{});
-        const result = try perfmon.Benchmark(total.vectorised_0).run(checks, .{&numbers});
+        const result = try perfmon.Benchmark(total.vectorised_0).run(checks, REPEAT, .{&numbers});
         std.log.info("Result = {}", .{result});
         if (result != EXPECTED) @panic("");
     }
     idf.rtos.Task.delayMs(0);
     {
         log.info("improved vector code", .{});
-        const result = try perfmon.Benchmark(total.vectorised_1).run(checks, .{&numbers});
+        const result = try perfmon.Benchmark(total.vectorised_1).run(checks, REPEAT, .{&numbers});
         std.log.info("Result = {}", .{result});
         if (result != EXPECTED) @panic("");
     }
