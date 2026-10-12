@@ -114,6 +114,13 @@ fn run_optimised_functions() !void {
         std.log.info("Result = {}", .{result});
         if (result != EXPECTED) @panic("");
     }
+    idf.rtos.Task.delayMs(0);
+    {
+        log.info("Use more vector registers", .{});
+        const result = try perfmon.Benchmark(total.vectorised_2).run(checks, REPEAT, .{&numbers});
+        std.log.info("Result = {}", .{result});
+        if (result != EXPECTED) @panic("");
+    }
 }
 
 pub const panic = idf.esp_panic.panic;
@@ -351,6 +358,9 @@ const total = struct {
             // (2) Read q1 from a8
             // (3) a8 += 16
             \\ee.vadds.s32.ld.incp  q1, a8, q0, q0, q1
+            // There is actually a bubble here, but perfmon does not count it,
+            // because it it happens during the zero-copy loop.
+            // See the next function for more details.
             \\lend4:
             // Sum the 4 results
             \\ee.movi.32.a      q0, %[sum], 0
@@ -372,6 +382,63 @@ const total = struct {
               .a13 = true,
               .q0 = true,
               .q1 = true,
+              .memory = true,
+            });
+    }
+
+    /// See if further improvements can be made
+    ///
+    /// Statistics don't indicate any pipeline bubbles, but is that really the case?
+    /// It appears to take 2 cycles per instruction.
+    fn vectorised_2(numbers: []const i32) i32 {
+        assert(std.mem.isAligned(@intFromPtr(numbers.ptr), 16));
+        assert(numbers.len % 8 == 0);
+        // assert(numbers.len > 0);
+
+        const start = numbers.ptr;
+        const middle = numbers[(numbers.len / 2)..].ptr;
+        const len = numbers.len / 2;
+        assert(len > 0);
+
+        return asm (
+            \\mov.n     a9, %[len]
+            \\srli      a9, a9, 2
+            \\mov.n     a8, %[start]
+            \\mov.n     a10, %[middle]
+            \\ee.zero.q q0
+            \\ee.zero.q q2
+            \\ee.vld.128.ip     q1, a8, 16
+            \\ee.vld.128.ip     q3, a10, 16
+            \\loopnez   a9, lend5
+            // Alternate the pairs
+            \\ee.vadds.s32.ld.incp  q1, a8, q0, q0, q1
+            \\ee.vadds.s32.ld.incp  q3, a10, q2, q2, q3
+            // A bubbe still occurs here. Strange.
+            \\lend5:
+            // Sum the 8 results
+            \\ee.vadds.s32          q0, q2, q0
+            \\ee.movi.32.a      q0, %[sum], 0
+            \\ee.movi.32.a      q0, a11, 1
+            \\add.n    %[sum], %[sum], a11
+            \\ee.movi.32.a      q0, a12, 2
+            \\add.n    %[sum], %[sum], a12
+            \\ee.movi.32.a      q0, a13, 3
+            \\add.n    %[sum], %[sum], a13
+            : [sum] "=r" (-> i32),
+            : [start] "r" (start),
+              [middle] "r" (middle),
+              [len] "r" (len),
+            : .{
+              .a8 = true,
+              .a9 = true,
+              .a10 = true,
+              .a11 = true,
+              .a12 = true,
+              .a13 = true,
+              .q0 = true,
+              .q1 = true,
+              .q2 = true,
+              .q3 = true,
               .memory = true,
             });
     }
