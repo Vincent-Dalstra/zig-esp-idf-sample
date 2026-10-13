@@ -4,8 +4,12 @@
 /// collect various statistics. You can use this to verify that your
 /// hand-written assembly optimisations are in fact better!
 ///
-/// To demonstrate how these counters work, I wrote a series of functions that
-/// add
+/// To demonstrate how these counters work, I wrote some example functions
+/// in the `total` namespace, which all do the same thing; add up the numbers
+/// in an []i32. They show how performance data can guide optimisation decisions
+/// step-by-step to produce faster code. The final SIMD code runs 32x faster than
+/// the initial 'for' loop (ESP32-S3, ReleaseSafe).
+///
 ///
 /// Requirements:
 /// - XTensa
@@ -372,17 +376,17 @@ const total = struct {
             \\mov.n     a8, %[start]
             \\ee.zero.q q0
             \\ee.vld.128.ip     q1, a8, 16
-            // Align the first istruction in the loop to 32-bits
+            // Align the first instruction in the loop to 32-bits.
+            // Otherwise, a wasted cycle would prevent the bubble from
+            // showing up in the perfmon statistics.
             \\_nop
             \\loopnez   a9, lend4
-            // Combined instruction does 3 things in order:
+            // Combined instruction equivalent to doing 3 things in order:
             // (1) q0 = q0 + q1
             // (2) Read q1 from a8
             // (3) a8 += 16
             \\ee.vadds.s32.ld.incp  q1, a8, q0, q0, q1
-            // There is actually a bubble here, but perfmon does not count it,
-            // because it it happens during the zero-copy loop.
-            // See the next function for more details.
+            // Single pipeline bubble to allow q1 to load from memory
             \\lend4:
             // Sum the 4 results
             \\ee.movi.32.a      q0, %[sum], 0
@@ -408,11 +412,17 @@ const total = struct {
             });
     }
 
-    /// See if further improvements can be made
+    /// Resolve data dependency in vectorised loop
     ///
     /// This loop avoids a pipeline bubble by alternating between two sets of
     /// vector registers, allowing the instructions to execute far enough
     /// for the values to be ready on the next cycle.
+    ///
+    /// However, this loop takes THREE cycles per iteration, when it should be
+    /// two. This is because instructions not aligned to 32-bits take two cycles to load.
+    /// Usually, this overlaps with the previous instructions and so you don't notice.
+    /// this doesn't work for zero-copy loops where the previous instruction is not
+    /// contiguous memory.
     fn vectorised_2(numbers: []const i32) i32 {
         assert(std.mem.isAligned(@intFromPtr(numbers.ptr), 16));
         assert(numbers.len % 8 == 0);
@@ -465,7 +475,7 @@ const total = struct {
             });
     }
 
-    /// See if further improvements can be made
+    /// Prevent the wasted cycle from unaligned loop start
     ///
     /// Zero-overhead loops are faster when the first instruction in the loop
     /// is 32-bit aligned. Otherwise, a single cycle is wasted on properly aligning
