@@ -95,8 +95,9 @@ const module_specs = [_]ModuleSpec{
     .{ .name = "event", .file = "event.zig", .deps = &.{ "sys", "error" } },
     .{ .name = "wdt", .file = "wdt.zig", .deps = &.{ "sys", "error" } },
     .{ .name = "nimble", .file = "nimble.zig", .deps = &.{ "sys", "error" } },
-    .{ .name = "perfmon", .file = "perfmon.zig", .deps = &.{ "sys", "error" } },
     // ── depend on sys + log ────────────────────────
+    // ── depend on sys + log + error ───────────────────────────────────────────
+    .{ .name = "perfmon", .file = "perfmon.zig", .deps = &.{ "sys", "log", "error" } },
     // ── depend on sys + hw_support ────────────────────────
     .{ .name = "panic", .file = "panic.zig", .deps = &.{ "sys", "hw_support" } },
 };

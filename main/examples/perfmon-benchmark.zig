@@ -26,9 +26,9 @@ const perfmon = idf.perfmon;
 
 const assert = std.debug.assert;
 
-const log = std.log.scoped(.http_srv);
+const log = std.log.scoped(.perfmon_example);
 
-const checks = perfmon.pm_check.simple;
+const checks = perfmon.perfmon_check_table.simple;
 
 const REPEAT = 10;
 
