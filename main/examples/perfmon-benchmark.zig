@@ -13,7 +13,7 @@
 ///
 /// Requirements:
 /// - XTensa
-/// Reccomended
+/// Recommended
 /// - ESP32-S3 (enables SIMD optimisations)
 const std = @import("std");
 const builtin = @import("builtin");
@@ -112,6 +112,13 @@ fn run_optimised_functions() !void {
     if (@hasDecl(sys, "SOC_SIMD_INSTRUCTION_SUPPORTED") and sys.SOC_SIMD_INSTRUCTION_SUPPORTED != 0) {
         assert(sys.SOC_SIMD_INSTRUCTION_SUPPORTED == 1);
 
+        idf.rtos.Task.yield();
+        {
+            log.info("zig loop, @Vector", .{});
+            const result = try perfmon.Benchmark(total.zig_loop_vec).run(checks, REPEAT, .{&numbers});
+            std.log.info("Result = {}", .{result});
+            if (result != EXPECTED) @panic("");
+        }
         idf.rtos.Task.yield();
         {
             log.info("vectorised zero-overhead loop", .{});
@@ -283,6 +290,27 @@ const total = struct {
               .a10 = true,
               .memory = true,
             });
+    }
+
+    const Simd_block = @Vector(4, i32);
+
+    /// See what zig @Vector() does
+    ///
+    /// Answer: does not emit SIMD. There is a slight performance boost
+    /// simply because it unrolls the loop a bit.
+    fn zig_loop_vec(numbers: []const i32) i32 {
+        assert(std.mem.isAligned(@intFromPtr(numbers.ptr), 16));
+        assert(numbers.len % 4 == 0);
+        assert(numbers.len > 0);
+
+        const as_vec: []const Simd_block = @ptrCast(@alignCast(numbers));
+
+        var accumulate: Simd_block = @splat(0);
+        for (as_vec) |el| {
+            accumulate += el;
+        }
+
+        return @reduce(.Add, accumulate);
     }
 
     /// Vectorised zero-overhead loop
