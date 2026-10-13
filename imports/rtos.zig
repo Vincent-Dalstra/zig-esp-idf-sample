@@ -92,6 +92,10 @@ pub const Task = struct {
         sys.vTaskDelete(handle);
     }
 
+    pub fn yield() void {
+        sys.vPortYield();
+    }
+
     pub fn delay(ticks: TickType) void {
         sys.vTaskDelay(ticks);
     }
