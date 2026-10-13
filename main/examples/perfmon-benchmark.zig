@@ -7,7 +7,10 @@
 /// To demonstrate how these counters work, I wrote a series of more-and-more
 /// optimised functions.
 ///
-/// Only works on XTensa targets with Vector instructions
+/// Requirements:
+/// - XTensa
+/// Reccomended
+/// - ESP32-S3 (enables SIMD optimisations)
 const std = @import("std");
 const builtin = @import("builtin");
 const idf = @import("esp_idf");
@@ -100,32 +103,38 @@ fn run_optimised_functions() !void {
         std.log.info("Result = {}", .{result});
         if (result != EXPECTED) @panic("");
     }
-    idf.rtos.Task.delayMs(0);
-    {
-        log.info("vectorised zero-overhead loop", .{});
-        const result = try perfmon.Benchmark(total.vectorised_0).run(checks, REPEAT, .{&numbers});
-        std.log.info("Result = {}", .{result});
-        if (result != EXPECTED) @panic("");
-    }
-    idf.rtos.Task.delayMs(0);
-    {
-        log.info("improved vector code", .{});
-        const result = try perfmon.Benchmark(total.vectorised_1).run(checks, REPEAT, .{&numbers});
-        std.log.info("Result = {}", .{result});
-        if (result != EXPECTED) @panic("");
-    }
-    idf.rtos.Task.delayMs(0);
-    {
-        log.info("Use more vector registers", .{});
-        const result = try perfmon.Benchmark(total.vectorised_2).run(checks, REPEAT, .{&numbers});
-        std.log.info("Result = {}", .{result});
-        if (result != EXPECTED) @panic("");
-    }
-    {
-        log.info("Align zero-copy loop to prevent wasted cycle", .{});
-        const result = try perfmon.Benchmark(total.vectorised_3).run(checks, REPEAT, .{&numbers});
-        std.log.info("Result = {}", .{result});
-        if (result != EXPECTED) @panic("");
+
+    // Further optimisations require SIMD, which is only available on the ESP32-S3
+    if (@hasDecl(sys, "SOC_SIMD_INSTRUCTION_SUPPORTED") and sys.SOC_SIMD_INSTRUCTION_SUPPORTED != 0) {
+        assert(sys.SOC_SIMD_INSTRUCTION_SUPPORTED == 1);
+
+        idf.rtos.Task.delayMs(0);
+        {
+            log.info("vectorised zero-overhead loop", .{});
+            const result = try perfmon.Benchmark(total.vectorised_0).run(checks, REPEAT, .{&numbers});
+            std.log.info("Result = {}", .{result});
+            if (result != EXPECTED) @panic("");
+        }
+        idf.rtos.Task.delayMs(0);
+        {
+            log.info("improved vector code", .{});
+            const result = try perfmon.Benchmark(total.vectorised_1).run(checks, REPEAT, .{&numbers});
+            std.log.info("Result = {}", .{result});
+            if (result != EXPECTED) @panic("");
+        }
+        idf.rtos.Task.delayMs(0);
+        {
+            log.info("Use more vector registers", .{});
+            const result = try perfmon.Benchmark(total.vectorised_2).run(checks, REPEAT, .{&numbers});
+            std.log.info("Result = {}", .{result});
+            if (result != EXPECTED) @panic("");
+        }
+        {
+            log.info("Align zero-copy loop to prevent wasted cycle", .{});
+            const result = try perfmon.Benchmark(total.vectorised_3).run(checks, REPEAT, .{&numbers});
+            std.log.info("Result = {}", .{result});
+            if (result != EXPECTED) @panic("");
+        }
     }
 }
 
