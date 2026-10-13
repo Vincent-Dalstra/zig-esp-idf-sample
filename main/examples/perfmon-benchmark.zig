@@ -79,28 +79,28 @@ fn run_optimised_functions() !void {
         const result = try perfmon.Benchmark(total.do_nothing).run(checks, REPEAT, .{&numbers});
         std.log.info("Result = {}", .{result});
     }
-    idf.rtos.Task.delayMs(0);
+    idf.rtos.Task.yield();
     {
         log.info("zig loop", .{});
         const result = try perfmon.Benchmark(total.zig_loop).run(checks, REPEAT, .{&numbers});
         std.log.info("Result = {}", .{result});
         if (result != EXPECTED) @panic("");
     }
-    idf.rtos.Task.delayMs(0);
+    idf.rtos.Task.yield();
     {
         log.info("asm loop (should be similar to zig loop)", .{});
         const result = try perfmon.Benchmark(total.basic_loop_0).run(checks, REPEAT, .{&numbers});
         std.log.info("Result = {}", .{result});
         if (result != EXPECTED) @panic("");
     }
-    idf.rtos.Task.delayMs(0);
+    idf.rtos.Task.yield();
     {
         log.info("asm loop, without the data hazard", .{});
         const result = try perfmon.Benchmark(total.basic_loop_1).run(checks, REPEAT, .{&numbers});
         std.log.info("Result = {}", .{result});
         if (result != EXPECTED) @panic("");
     }
-    idf.rtos.Task.delayMs(0);
+    idf.rtos.Task.yield();
     {
         log.info("zero-overhead loop", .{});
         const result = try perfmon.Benchmark(total.zero_overhead_loop_0).run(checks, REPEAT, .{&numbers});
@@ -112,21 +112,21 @@ fn run_optimised_functions() !void {
     if (@hasDecl(sys, "SOC_SIMD_INSTRUCTION_SUPPORTED") and sys.SOC_SIMD_INSTRUCTION_SUPPORTED != 0) {
         assert(sys.SOC_SIMD_INSTRUCTION_SUPPORTED == 1);
 
-        idf.rtos.Task.delayMs(0);
+        idf.rtos.Task.yield();
         {
             log.info("vectorised zero-overhead loop", .{});
             const result = try perfmon.Benchmark(total.vectorised_0).run(checks, REPEAT, .{&numbers});
             std.log.info("Result = {}", .{result});
             if (result != EXPECTED) @panic("");
         }
-        idf.rtos.Task.delayMs(0);
+        idf.rtos.Task.yield();
         {
             log.info("improved vector code", .{});
             const result = try perfmon.Benchmark(total.vectorised_1).run(checks, REPEAT, .{&numbers});
             std.log.info("Result = {}", .{result});
             if (result != EXPECTED) @panic("");
         }
-        idf.rtos.Task.delayMs(0);
+        idf.rtos.Task.yield();
         {
             log.info("Use more vector registers", .{});
             const result = try perfmon.Benchmark(total.vectorised_2).run(checks, REPEAT, .{&numbers});
