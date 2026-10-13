@@ -170,26 +170,13 @@ const total = struct {
         return sum;
     }
 
-    /// Provides a baseline to compare the rest against
+    /// Get an idea of how much overhead the perfmon calls have
     fn do_nothing(numbers: []const i32) i32 {
-        assert(std.mem.isAligned(@intFromPtr(numbers.ptr), 16));
-        assert(numbers.len % 4 == 0);
-        assert(numbers.len > 0);
-
-        const start = numbers.ptr;
-        const len = numbers.len;
-        assert(len > 0);
-
-        return asm volatile (
+        _ = numbers;
+        asm volatile (
             \\nop
-            : [sum] "=r" (-> i32),
-            : [start] "r" (start),
-              [len] "r" (len),
-            : .{
-              .a8 = true,
-              .a9 = true,
-              .a10 = true,
-            });
+            ::: .{});
+        return 0;
     }
 
     /// Assembly loop - intended to be as similar as possible to the
