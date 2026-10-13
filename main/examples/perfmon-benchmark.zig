@@ -4,8 +4,8 @@
 /// collect various statistics. You can use this to verify that your
 /// hand-written assembly optimisations are in fact better!
 ///
-/// To demonstrate how these counters work, I wrote a series of more-and-more
-/// optimised functions.
+/// To demonstrate how these counters work, I wrote a series of functions that
+/// add
 ///
 /// Requirements:
 /// - XTensa
@@ -259,9 +259,8 @@ const total = struct {
     ///
     /// Unlike branch instructions, the CPU can predict that the jump will be
     /// taken and fetch instructions from the start of the loop. This saves
-    /// two bubbles per iteration.
-    /// It also handles the loop counter automatically, saving another
-    /// instruction.
+    /// two bubbles per iteration. It also decrements the loop counter
+    /// automatically, saving one more instruction.
     ///
     /// This comes with some restrictions: e.g. you cannot nest these loops
     ///
