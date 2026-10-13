@@ -121,6 +121,12 @@ fn run_optimised_functions() !void {
         std.log.info("Result = {}", .{result});
         if (result != EXPECTED) @panic("");
     }
+    {
+        log.info("Align zero-copy loop to prevent wasted cycle", .{});
+        const result = try perfmon.Benchmark(total.vectorised_3).run(checks, REPEAT, .{&numbers});
+        std.log.info("Result = {}", .{result});
+        if (result != EXPECTED) @panic("");
+    }
 }
 
 pub const panic = idf.esp_panic.panic;
@@ -337,6 +343,12 @@ const total = struct {
     /// The `ee.vadds.s32.ld.incp` simultaneously adds [4]i32 and reads
     /// [4]i32 from memory, in a single cycle. It also increments the address
     /// byt 16 bytes - perfect for reading contiguous memory.
+    ///
+    /// Note that this loop takes THREE cycles per iteration, when it should be
+    /// two. This is because instructions not aligned to 32-bits take two cycles to load.
+    /// Usually, this overlaps with the previous instructions and so you don't notice.
+    /// this doesn't work for zero-copy loops where the previous instruction is not
+    /// contiguous memory.
     fn vectorised_1(numbers: []const i32) i32 {
         assert(std.mem.isAligned(@intFromPtr(numbers.ptr), 16));
         assert(numbers.len % 4 == 0);
@@ -352,6 +364,8 @@ const total = struct {
             \\mov.n     a8, %[start]
             \\ee.zero.q q0
             \\ee.vld.128.ip     q1, a8, 16
+            // Align the first istruction in the loop to 32-bits
+            \\_nop
             \\loopnez   a9, lend4
             // Combined instruction does 3 things in order:
             // (1) q0 = q0 + q1
@@ -388,8 +402,9 @@ const total = struct {
 
     /// See if further improvements can be made
     ///
-    /// Statistics don't indicate any pipeline bubbles, but is that really the case?
-    /// It appears to take 2 cycles per instruction.
+    /// This loop avoids a pipeline bubble by alternating between two sets of
+    /// vector registers, allowing the instructions to execute far enough
+    /// for the values to be ready on the next cycle.
     fn vectorised_2(numbers: []const i32) i32 {
         assert(std.mem.isAligned(@intFromPtr(numbers.ptr), 16));
         assert(numbers.len % 8 == 0);
@@ -413,8 +428,70 @@ const total = struct {
             // Alternate the pairs
             \\ee.vadds.s32.ld.incp  q1, a8, q0, q0, q1
             \\ee.vadds.s32.ld.incp  q3, a10, q2, q2, q3
-            // A bubbe still occurs here. Strange.
             \\lend5:
+            // Sum the 8 results
+            \\ee.vadds.s32          q0, q2, q0
+            \\ee.movi.32.a      q0, %[sum], 0
+            \\ee.movi.32.a      q0, a11, 1
+            \\add.n    %[sum], %[sum], a11
+            \\ee.movi.32.a      q0, a12, 2
+            \\add.n    %[sum], %[sum], a12
+            \\ee.movi.32.a      q0, a13, 3
+            \\add.n    %[sum], %[sum], a13
+            : [sum] "=r" (-> i32),
+            : [start] "r" (start),
+              [middle] "r" (middle),
+              [len] "r" (len),
+            : .{
+              .a8 = true,
+              .a9 = true,
+              .a10 = true,
+              .a11 = true,
+              .a12 = true,
+              .a13 = true,
+              .q0 = true,
+              .q1 = true,
+              .q2 = true,
+              .q3 = true,
+              .memory = true,
+            });
+    }
+
+    /// See if further improvements can be made
+    ///
+    /// Zero-overhead loops are faster when the first instruction in the loop
+    /// is 32-bit aligned. Otherwise, a single cycle is wasted on properly aligning
+    /// the instruction.
+    ///
+    /// Perfmon doesn't record this wasted cycle on ANY counter other than the
+    /// total 'Amount of cycles'!
+    fn vectorised_3(numbers: []const i32) i32 {
+        assert(std.mem.isAligned(@intFromPtr(numbers.ptr), 16));
+        assert(numbers.len % 8 == 0);
+        // assert(numbers.len > 0);
+
+        const start = numbers.ptr;
+        const middle = numbers[(numbers.len / 2)..].ptr;
+        const len = numbers.len / 2;
+        assert(len > 0);
+
+        return asm (
+            \\mov.n     a9, %[len]
+            \\srli      a9, a9, 2
+            \\mov.n     a8, %[start]
+            \\mov.n     a10, %[middle]
+            \\ee.zero.q q0
+            \\ee.zero.q q2
+            \\ee.vld.128.ip     q1, a8, 16
+            \\ee.vld.128.ip     q3, a10, 16
+            // Use NOP instructions to align the loop start
+            \\nop.n
+            \\_nop
+            \\loopnez   a9, lend6
+            // Alternate the pairs
+            \\ee.vadds.s32.ld.incp  q1, a8, q0, q0, q1
+            \\ee.vadds.s32.ld.incp  q3, a10, q2, q2, q3
+            \\lend6:
             // Sum the 8 results
             \\ee.vadds.s32          q0, q2, q0
             \\ee.movi.32.a      q0, %[sum], 0
