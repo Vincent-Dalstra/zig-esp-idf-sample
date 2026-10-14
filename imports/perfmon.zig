@@ -51,6 +51,27 @@ const BenchmarkError = error{
     UnknownCounterMask,
 };
 
+const BenchMarkStatResult = struct {
+    repeat: u32,
+    min: u32,
+    max: u32,
+    total: u64,
+
+    const init: BenchMarkStatResult = .{
+        .repeat = 0,
+        .min = std.math.maxInt(u32),
+        .max = 0,
+        .total = 0,
+    };
+
+    fn add_result(self: *BenchMarkStatResult, val: u32) void {
+        self.max = @max(self.max, val);
+        self.min = @min(self.min, val);
+        self.total += val;
+        self.repeat += 1;
+    }
+};
+
 pub const Benchmark = NewBenchmark;
 
 /// Note: `function` will be executed multiple times!
@@ -200,9 +221,7 @@ pub fn NewBenchmark(function: anytype) type {
             for (pm_check_table) |pm_check| {
                 const retry = repeat; // Simple
 
-                var total_stats: u64 = 0;
-                var max_stats: u32 = 0;
-                var min_stats: u32 = std.math.maxInt(u32);
+                var results_summary: BenchMarkStatResult = .init;
 
                 var invalid: u32 = 0;
                 var done: u32 = 0;
@@ -236,16 +255,13 @@ pub fn NewBenchmark(function: anytype) type {
                         continue;
                     }
 
-                    max_stats = @max(max_stats, stats);
-                    min_stats = @min(min_stats, stats);
-                    total_stats += stats;
+                    results_summary.add_result(stats);
 
                     done += 1;
                 }
-                log.warn("total_stats = {} (min = {}, max = {}))", .{ total_stats, min_stats, max_stats });
+                log.debug("Total = {}", .{results_summary.total});
 
-                try apis.print_results(pm_check[0], pm_check[1], repeat, total_stats, min_stats, max_stats);
-                // sys.xtensa_perfmon_view_cb(null, pm_check[0], pm_check[1], @as(u32, @intCast(total_stats / repeat)));
+                try apis.print_results(pm_check[0], pm_check[1], results_summary);
             }
             return expected_result;
         }
@@ -282,17 +298,15 @@ pub fn NewBenchmark(function: anytype) type {
 
 const apis = struct {
     // Rewrite & improvement of `sys.xtensa_perfmon_view_cb`
-    fn print_results(select: u32, mask: u32, repeat: u32, total: u64, min: u32, max: u32) BenchmarkError!void {
+    fn print_results(select: u32, mask: u32, result: BenchMarkStatResult) BenchmarkError!void {
         log.info(
-            "min/max/avg = {d:9}/{d:9}/{d:9}, select = {d:2}, mask = 0x{x:04}.  {s}.\n",
-            .{
-                min,
-                max,
-                total / repeat,
-                select,
-                mask,
-                try get_select_description(select),
-            },
+            "min/max/avg = {d:9}/{d:9}/{d:9}, select = {d:2}, mask = 0x{x:04}",
+            .{ result.min, result.max, (result.total / result.repeat), select, mask },
+        );
+
+        log.info(
+            "    {s}.",
+            .{try get_select_description(select)},
         );
 
         const backing, const len = try get_mask_descriptions(select, mask);
@@ -300,7 +314,7 @@ const apis = struct {
 
         for (mask_descriptions) |desc| {
             log.info(
-                "                {s}",
+                "        {s}",
                 .{desc},
             );
         }
