@@ -47,6 +47,8 @@ const BenchmarkError = error{
     Failed,
     InconsistentResults, // see `run_not_pure()`
     IramBusyStall,
+    UnknownCounter,
+    UnknownCounterMask,
 };
 
 pub const Benchmark = NewBenchmark;
@@ -240,9 +242,10 @@ pub fn NewBenchmark(function: anytype) type {
 
                     done += 1;
                 }
-                log.info("total_stats = {} (min = {}, max = {}))", .{ total_stats, min_stats, max_stats });
+                log.warn("total_stats = {} (min = {}, max = {}))", .{ total_stats, min_stats, max_stats });
 
-                sys.xtensa_perfmon_view_cb(null, pm_check[0], pm_check[1], @as(u32, @intCast(total_stats / repeat)));
+                try apis.print_results(pm_check[0], pm_check[1], repeat, total_stats, min_stats, max_stats);
+                // sys.xtensa_perfmon_view_cb(null, pm_check[0], pm_check[1], @as(u32, @intCast(total_stats / repeat)));
             }
             return expected_result;
         }
@@ -276,6 +279,91 @@ pub fn NewBenchmark(function: anytype) type {
         }
     };
 }
+
+const apis = struct {
+    // Rewrite & improvement of `sys.xtensa_perfmon_view_cb`
+    fn print_results(select: u32, mask: u32, repeat: u32, total: u64, min: u32, max: u32) BenchmarkError!void {
+        log.info(
+            "min/max/avg = {d:9}/{d:9}/{d:9}, select = {d:2}, mask = 0x{x:04}.  {s}.\n",
+            .{
+                min,
+                max,
+                total / repeat,
+                select,
+                mask,
+                try get_select_description(select),
+            },
+        );
+
+        const backing, const len = try get_mask_descriptions(select, mask);
+        const mask_descriptions = backing[0..len];
+
+        for (mask_descriptions) |desc| {
+            log.info(
+                "                {s}",
+                .{desc},
+            );
+        }
+
+        // log.info(
+        //     "{s}",
+        //     .{},
+        // );
+    }
+
+    fn get_select_description(select: u32) BenchmarkError![*:0]const u8 {
+        var i: usize = 0;
+        while (true) : (i += 1) {
+            if (sys.xtensa_perfmon_select_table[i].select == -1) break;
+            if (sys.xtensa_perfmon_select_table[i].select == select) {
+                return sys.xtensa_perfmon_select_table[i].description;
+            }
+        }
+        return BenchmarkError.UnknownCounter;
+    }
+
+    fn get_mask_descriptions(select: u32, mask: u32) BenchmarkError!struct { [32][*:0]const u8, usize } {
+        const pop: u6 = @popCount(mask);
+        var ret: [32][*:0]const u8 = undefined;
+        var ret_i: usize = 0;
+
+        var i: usize = 0;
+        while (ret_i < pop) : (i += 1) {
+            if (sys.xtensa_perfmon_masks_table[i].select == -1) break;
+            if (sys.xtensa_perfmon_masks_table[i].select == select) {
+                if ((sys.xtensa_perfmon_masks_table[i].mask & @as(c_int, @intCast(mask))) != 0) {
+                    ret[ret_i] = sys.xtensa_perfmon_masks_table[i].description;
+                    ret_i += 1;
+                }
+            }
+        }
+        if (ret_i < pop) {
+            return BenchmarkError.UnknownCounterMask;
+        }
+        assert(ret_i == @popCount(mask));
+        return .{ ret, ret_i };
+    }
+};
+
+// void xtensa_perfmon_view_cb(void *params, uint32_t select, uint32_t mask, uint32_t value)
+// {
+//     FILE *handle;
+//     if (params != NULL) {
+//         handle = (FILE *)params;
+//     } else {
+//         handle = stdout;
+//     }
+//     for (int i = 0 ; xtensa_perfmon_select_table[i].select != -1; i++) {
+//         if (xtensa_perfmon_select_table[i].select == select) {
+//             fprintf(handle, "Value = %9i, select = %2i, mask = %04x.  %s.\n", value, select, mask, xtensa_perfmon_select_table[i].description);
+//         }
+//     }
+//     for (int i = 0 ; xtensa_perfmon_masks_table[i].select != -1; i++) {
+//         if ((xtensa_perfmon_masks_table[i].select == select) && (xtensa_perfmon_masks_table[i].mask & mask)) {
+//             fprintf(handle, "                  %s\n", xtensa_perfmon_masks_table[i].description);
+//         }
+//     }
+// }
 
 const access = struct {
     fn xtensa_perfmon_reset(id: c_int) sys.esp_err_t {
