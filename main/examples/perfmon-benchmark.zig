@@ -107,6 +107,13 @@ fn run_optimised_functions() !void {
         std.log.info("Result = {}", .{result});
         if (result != EXPECTED) @panic("");
     }
+    idf.rtos.Task.yield();
+    {
+        log.info("mis-aligned instruction at zero-overhead loop start", .{});
+        const result = try perfmon.Benchmark(total.zero_overhead_loop_1).run(checks, REPEAT, .{&numbers});
+        std.log.info("Result = {}", .{result});
+        if (result != EXPECTED) @panic("");
+    }
 
     // Further optimisations require SIMD, which is only available on the ESP32-S3
     if (@hasDecl(sys, "SOC_SIMD_INSTRUCTION_SUPPORTED") and sys.SOC_SIMD_INSTRUCTION_SUPPORTED != 0) {
@@ -276,11 +283,55 @@ const total = struct {
             \\mov.n     a9, %[len]
             \\mov.n     a8, %[start]
             \\movi.n    %[sum], 0
-            \\loopnez   a9, lend2
+            \\loopnez   a9, lend_zol_0
             \\l32i.n    a10, a8, 0 
             \\addi.n    a8, a8, 4
             \\add.n    %[sum], %[sum], a10
-            \\lend2:
+            \\lend_zol_0:
+            : [sum] "=r" (-> i32),
+            : [start] "r" (start),
+              [len] "r" (len),
+            : .{
+              .a8 = true,
+              .a9 = true,
+              .a10 = true,
+              .memory = true,
+            });
+    }
+
+    /// Zero-overhead loops are sensitive to instruction alignment
+    ///
+    /// This takes an additional cycle per iteration, which is not
+    /// recorded in any other counter.
+    ///
+    /// The reason for this is that the first instruction in the
+    /// loop does not sit within a 32-bit boundary. The instruction
+    /// bus is both 32-bit wide and aligned, so two cycles are required
+    /// to load the instruction.
+    ///
+    /// Normally, in sequential code, these cycles overlap between instructions
+    /// so that overall throughput is unaffected. This doesn't work for zero-copy
+    /// loops where the previous instruction is not in contiguous memory.
+    fn zero_overhead_loop_1(numbers: []const i32) i32 {
+        assert(std.mem.isAligned(@intFromPtr(numbers.ptr), 16));
+        assert(numbers.len % 4 == 0);
+        // assert(numbers.len > 0);
+
+        const start = numbers.ptr;
+        const len = numbers.len;
+        assert(len > 0);
+
+        return asm (
+            \\mov.n     a9, %[len]
+            \\mov.n     a8, %[start]
+            \\movi.n    %[sum], 0
+            \\nop.n
+            \\nop
+            \\loopnez   a9, lend_zol_1
+            \\l32i.n    a10, a8, 0 
+            \\addi.n    a8, a8, 4
+            \\add.n    %[sum], %[sum], a10
+            \\lend_zol_1:
             : [sum] "=r" (-> i32),
             : [start] "r" (start),
               [len] "r" (len),
@@ -371,7 +422,7 @@ const total = struct {
     /// [4]i32 from memory, in a single cycle. It also increments the address
     /// byt 16 bytes - perfect for reading contiguous memory.
     ///
-    /// Note that this loop takes THREE cycles per iteration, when it should be
+    /// Note that this loop takes TWO cycles per iteration, when it should be
     /// two. This is because instructions not aligned to 32-bits take two cycles to load.
     /// Usually, this overlaps with the previous instructions and so you don't notice.
     /// this doesn't work for zero-copy loops where the previous instruction is not
@@ -436,8 +487,8 @@ const total = struct {
     /// However, this loop takes THREE cycles per iteration, when it should be
     /// two. This is because instructions not aligned to 32-bits take two cycles to load.
     /// Usually, this overlaps with the previous instructions and so you don't notice.
-    /// this doesn't work for zero-copy loops where the previous instruction is not
-    /// contiguous memory.
+    /// but this doesn't work for zero-copy loops because the previous instruction
+    /// is in a different spot in memory.
     fn vectorised_2(numbers: []const i32) i32 {
         assert(std.mem.isAligned(@intFromPtr(numbers.ptr), 16));
         assert(numbers.len % 8 == 0);
