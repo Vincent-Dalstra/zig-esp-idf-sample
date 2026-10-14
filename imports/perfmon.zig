@@ -5,6 +5,11 @@ const assert = std.debug.assert;
 
 const log = std.log.scoped(.perfmon);
 
+// Places code into IRAM instead of flash
+const IRAM_ATTR = ".iram1";
+// Forces code into IRAM instead of flash
+// const FORCE_IRAM_ATTR = ".iram1"; // Combine IRAM_ATTR with 'noinline'
+
 // if (@hasDecl(sys, "CONFIG_IDF_TARGET_ARCH_XTENSA")) {
 //     ;
 // } else if (@hasDecl(sys, "CONFIG_IDF_TARGET_ARCH_RISCV")) {
@@ -151,29 +156,29 @@ pub fn NewBenchmark(function: anytype) type {
     return struct {
         const Self = @This();
 
-        pub fn run(
+        pub inline fn run(
             pm_check_table: []const [2]u32,
             repeat: u32,
             args: Args,
-        ) Error!Result {
+        ) linksection(IRAM_ATTR) Error!Result {
             return run_internal(pm_check_table, repeat, args, true);
         }
 
         /// Use this if the function may return a different value on subsequent calls
-        pub fn run_not_pure(
+        pub inline fn run_not_pure(
             pm_check_table: []const [2]u32,
             repeat: u32,
             args: Args,
-        ) Error!void {
+        ) linksection(IRAM_ATTR) Error!void {
             _ = run_internal(pm_check_table, repeat, args, false);
         }
 
-        fn run_internal(
+        noinline fn run_internal(
             pm_check_table: []const [2]u32,
             repeat: u32,
             args: Args,
             compare_results: bool,
-        ) Error!Result {
+        ) linksection(IRAM_ATTR) Error!Result {
             // Warm-up the Instruction cache
             var expected_result: Result = undefined;
             if (true) {
@@ -186,7 +191,7 @@ pub fn NewBenchmark(function: anytype) type {
                 _ = cycles;
 
                 if (iram_busy > 0) {
-                    std.log.warn("WARMUP: Instruction RAM/ROM busy stall = {}", .{iram_busy});
+                    log.debug("WARMUP: Instruction RAM/ROM busy stall = {}", .{iram_busy});
                 }
             }
 
@@ -208,15 +213,21 @@ pub fn NewBenchmark(function: anytype) type {
                         args,
                         -1,
                     );
-                    // std.log.info("p0 = {}, p1 = {}", .{ cycles, stats });
+                    // log.info("p0 = {}, p1 = {}", .{ cycles, stats });
 
                     if (compare_results) {
                         if (expected_result != result) return Error.InconsistentResults;
                     }
 
                     if (iram_busy > 0) {
-                        // std.log.warn("Instruction RAM/ROM busy stall = {}", .{iram_busy});
                         invalid += 1;
+
+                        // log.warn("Instruction RAM/ROM busy stall = {}", .{iram_busy});
+                        @call(.always_inline, log.warn, .{
+                            "Done = {}/{}, Invalid = {}/{}, Instruction RAM/ROM busy stall = {}",
+                            .{ done, repeat, invalid, repeat, iram_busy },
+                        });
+
                         if (invalid > repeat) {
                             return Error.IramBusyStall;
                         }
@@ -235,7 +246,7 @@ pub fn NewBenchmark(function: anytype) type {
 
                     done += 1;
                 }
-                std.log.info("total_stats = {} (min = {}, max = {}))", .{ total_stats, min_stats, max_stats });
+                log.info("total_stats = {} (min = {}, max = {}))", .{ total_stats, min_stats, max_stats });
 
                 sys.xtensa_perfmon_view_cb(null, pm_check[0], pm_check[1], @as(u32, @intCast(total_stats / repeat)));
             }
@@ -250,7 +261,7 @@ pub fn NewBenchmark(function: anytype) type {
             pm_check_1: [2]u32,
             args: Args,
             tracelevel: c_int,
-        ) Error!struct { Result, u32, u32 } {
+        ) linksection(IRAM_ATTR) Error!struct { Result, u32, u32 } {
             // Set up cycle counter
             sys.xtensa_perfmon_stop();
             // if tracelevel used, then kernelcnt will be enabled
