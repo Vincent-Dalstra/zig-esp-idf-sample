@@ -41,6 +41,7 @@ const PERFMON_TRACELEVEL: c_int = -1;
 const BenchmarkError = error{
     Failed,
     InconsistentResults, // see `run_not_pure()`
+    IramBusyStall,
 };
 
 pub const Benchmark = NewBenchmark;
@@ -175,51 +176,78 @@ pub fn NewBenchmark(function: anytype) type {
         ) Error!Result {
             // Warm-up the Instruction cache
             var expected_result: Result = undefined;
-            while (true) {
-                expected_result, const cycles, const stats = try run_once_PORT(pm_counter_iram_busy, args, -1);
+            if (true) {
+                expected_result, const cycles, const iram_busy = try run_once_PORT(
+                    pm_counter_cycles,
+                    pm_counter_iram_busy,
+                    args,
+                    -1,
+                );
                 _ = cycles;
 
-                if (stats == 0) break;
-
-                std.log.warn("Instruction RAM/ROM busy stall = {}", .{stats});
+                if (iram_busy > 0) {
+                    std.log.warn("WARMUP: Instruction RAM/ROM busy stall = {}", .{iram_busy});
+                }
             }
 
             for (pm_check_table) |pm_check| {
-                var total_cycles: u64 = 0;
-                var max_cycles: u32 = 0;
-                var min_cycles: u32 = std.math.maxInt(u32);
+                // var total_cycles: u64 = 0;
+                // var max_cycles: u32 = 0;
+                // var min_cycles: u32 = std.math.maxInt(u32);
 
                 var total_stats: u64 = 0;
                 var max_stats: u32 = 0;
                 var min_stats: u32 = std.math.maxInt(u32);
-                for (0..repeat) |_| {
-                    const result, const cycles, const stats = try run_once_PORT(pm_check, args, -1);
+
+                var invalid: u32 = 0;
+                var done: u32 = 0;
+                while (done < repeat) {
+                    const result, const iram_busy, const stats = try run_once_PORT(
+                        pm_counter_iram_busy,
+                        pm_check,
+                        args,
+                        -1,
+                    );
                     // std.log.info("p0 = {}, p1 = {}", .{ cycles, stats });
 
                     if (compare_results) {
                         if (expected_result != result) return Error.InconsistentResults;
                     }
 
-                    max_cycles = @max(max_cycles, cycles);
-                    min_cycles = @min(min_cycles, cycles);
+                    if (iram_busy > 0) {
+                        // std.log.warn("Instruction RAM/ROM busy stall = {}", .{iram_busy});
+                        invalid += 1;
+                        if (invalid > repeat) {
+                            return Error.IramBusyStall;
+                        }
+
+                        continue;
+                    }
+
+                    // max_cycles = @max(max_cycles, cycles);
+                    // min_cycles = @min(min_cycles, cycles);
 
                     max_stats = @max(max_stats, stats);
                     min_stats = @min(min_stats, stats);
 
-                    total_cycles += cycles;
+                    // total_cycles += cycles;
                     total_stats += stats;
+
+                    done += 1;
                 }
-                std.log.info("total_stats = {} (min = {}, max = {}), total_cycles = {} (min = {}, max = {})", .{ total_stats, min_stats, max_stats, total_cycles, min_cycles, max_cycles });
+                std.log.info("total_stats = {} (min = {}, max = {}))", .{ total_stats, min_stats, max_stats });
 
                 sys.xtensa_perfmon_view_cb(null, pm_check[0], pm_check[1], @as(u32, @intCast(total_stats / repeat)));
             }
             return expected_result;
         }
 
+        const pm_counter_cycles: [2]u32 = .{ sys.XTPERF_CNT_CYCLES, 0xffff };
         const pm_counter_iram_busy: [2]u32 = .{ sys.XTPERF_CNT_I_STALL, sys.XTPERF_MASK_I_STALL_BUSY };
 
         fn run_once_PORT(
-            pm_check: [2]u32,
+            pm_check_0: [2]u32,
+            pm_check_1: [2]u32,
             args: Args,
             tracelevel: c_int,
         ) Error!struct { Result, u32, u32 } {
@@ -228,8 +256,8 @@ pub fn NewBenchmark(function: anytype) type {
             // if tracelevel used, then kernelcnt will be enabled
             const kernelcnt: c_int = if (tracelevel >= 0) 1 else 0;
 
-            assert(sys.ESP_OK == sys.xtensa_perfmon_init(0, 0, 0xffff, kernelcnt, tracelevel));
-            assert(sys.ESP_OK == sys.xtensa_perfmon_init(1, @intCast(pm_check[0]), @intCast(pm_check[1]), kernelcnt, tracelevel));
+            assert(sys.ESP_OK == sys.xtensa_perfmon_init(0, @intCast(pm_check_0[0]), @intCast(pm_check_0[1]), kernelcnt, tracelevel));
+            assert(sys.ESP_OK == sys.xtensa_perfmon_init(1, @intCast(pm_check_1[0]), @intCast(pm_check_1[1]), kernelcnt, tracelevel));
 
             sys.xtensa_perfmon_start();
             const result = @call(.never_inline, function, args);
