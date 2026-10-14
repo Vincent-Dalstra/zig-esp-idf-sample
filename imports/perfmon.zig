@@ -226,33 +226,28 @@ pub fn NewBenchmark(function: anytype) type {
                 var invalid: u32 = 0;
                 var done: u32 = 0;
                 while (done < repeat) {
-                    const result, const iram_busy, const stats = try run_once_PORT(
-                        pm_counter_iram_busy,
+                    const result, const stats = run_once_internal(
                         pm_check,
                         args,
-                        -1,
-                    );
-                    // log.info("p0 = {}, p1 = {}", .{ cycles, stats });
-
-                    if (compare_results) {
-                        if (expected_result != result) return Error.InconsistentResults;
-                    }
-
-                    if (iram_busy > 0) {
+                        if (compare_results) expected_result else null,
+                    ) catch |err| {
                         invalid += 1;
 
                         // Inline the log code so it gets forced into IRAM
                         // Otherwise, it will clobber a large chunk of the IRAM cache
                         @call(.always_inline, log.warn, .{
-                            "Done = {}/{}, Invalid = {}/{}, Instruction RAM/ROM busy stall = {} cycles",
-                            .{ done, repeat, invalid, retry, iram_busy },
+                            "Done = {}/{}, Invalid = {}/{}: {t}",
+                            .{ done, repeat, invalid, retry, err },
                         });
 
                         if (invalid > retry) {
                             return Error.IramBusyStall;
                         }
-
                         continue;
+                    };
+
+                    if (compare_results) {
+                        if (expected_result != result) return Error.InconsistentResults;
                     }
 
                     results_summary.add_result(stats);
@@ -264,6 +259,36 @@ pub fn NewBenchmark(function: anytype) type {
                 try apis.print_results(pm_check[0], pm_check[1], results_summary);
             }
             return expected_result;
+        }
+
+        noinline fn run_once_internal(
+            pm_check: [2]u32,
+            args: Args,
+            consistent_result: ?Result,
+        ) linksection(IRAM_ATTR) Error!struct { Result, u32 } {
+            const result, const iram_busy, const stats = try run_once_PORT(
+                pm_counter_iram_busy,
+                pm_check,
+                args,
+                -1,
+            );
+
+            if (consistent_result) |expected_result| {
+                if (expected_result != result) return Error.InconsistentResults;
+            }
+
+            if (iram_busy > 0) {
+                // Inline the log code so it gets forced into IRAM
+                // Otherwise, it will clobber a large chunk of the IRAM cache
+                @call(.always_inline, log.warn, .{
+                    "Instruction RAM/ROM busy stall = {} cycles",
+                    .{iram_busy},
+                });
+
+                return Error.IramBusyStall;
+            }
+
+            return .{ result, stats };
         }
 
         const pm_counter_cycles: [2]u32 = .{ sys.XTPERF_CNT_CYCLES, 0xffff };
@@ -300,7 +325,7 @@ const apis = struct {
     // Rewrite & improvement of `sys.xtensa_perfmon_view_cb`
     fn print_results(select: u32, mask: u32, result: BenchMarkStatResult) BenchmarkError!void {
         log.info(
-            "min/max/avg = {d:9}/{d:9}/{d:9}, select = {d:2}, mask = 0x{x:04}",
+            "min/max/avg = {d:9} /{d:9} /{d:9} , select = {d:2}, mask = 0x{x:04}",
             .{ result.min, result.max, (result.total / result.repeat), select, mask },
         );
 
