@@ -196,9 +196,7 @@ pub fn NewBenchmark(function: anytype) type {
             }
 
             for (pm_check_table) |pm_check| {
-                // var total_cycles: u64 = 0;
-                // var max_cycles: u32 = 0;
-                // var min_cycles: u32 = std.math.maxInt(u32);
+                const retry = repeat; // Simple
 
                 var total_stats: u64 = 0;
                 var max_stats: u32 = 0;
@@ -222,26 +220,22 @@ pub fn NewBenchmark(function: anytype) type {
                     if (iram_busy > 0) {
                         invalid += 1;
 
-                        // log.warn("Instruction RAM/ROM busy stall = {}", .{iram_busy});
+                        // Inline the log code so it gets forced into IRAM
+                        // Otherwise, it will clobber a large chunk of the IRAM cache
                         @call(.always_inline, log.warn, .{
-                            "Done = {}/{}, Invalid = {}/{}, Instruction RAM/ROM busy stall = {}",
-                            .{ done, repeat, invalid, repeat, iram_busy },
+                            "Done = {}/{}, Invalid = {}/{}, Instruction RAM/ROM busy stall = {} cycles",
+                            .{ done, repeat, invalid, retry, iram_busy },
                         });
 
-                        if (invalid > repeat) {
+                        if (invalid > retry) {
                             return Error.IramBusyStall;
                         }
 
                         continue;
                     }
 
-                    // max_cycles = @max(max_cycles, cycles);
-                    // min_cycles = @min(min_cycles, cycles);
-
                     max_stats = @max(max_stats, stats);
                     min_stats = @min(min_stats, stats);
-
-                    // total_cycles += cycles;
                     total_stats += stats;
 
                     done += 1;
@@ -256,7 +250,7 @@ pub fn NewBenchmark(function: anytype) type {
         const pm_counter_cycles: [2]u32 = .{ sys.XTPERF_CNT_CYCLES, 0xffff };
         const pm_counter_iram_busy: [2]u32 = .{ sys.XTPERF_CNT_I_STALL, sys.XTPERF_MASK_I_STALL_BUSY };
 
-        fn run_once_PORT(
+        noinline fn run_once_PORT(
             pm_check_0: [2]u32,
             pm_check_1: [2]u32,
             args: Args,
@@ -271,6 +265,7 @@ pub fn NewBenchmark(function: anytype) type {
             assert(sys.ESP_OK == sys.xtensa_perfmon_init(1, @intCast(pm_check_1[0]), @intCast(pm_check_1[1]), kernelcnt, tracelevel));
 
             sys.xtensa_perfmon_start();
+            // Do not inline the call, because that could change the instruction alignment
             const result = @call(.never_inline, function, args);
             sys.xtensa_perfmon_stop();
 
