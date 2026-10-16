@@ -384,48 +384,61 @@ const apis = struct {
     }
 };
 
-// void xtensa_perfmon_view_cb(void *params, uint32_t select, uint32_t mask, uint32_t value)
-// {
-//     FILE *handle;
-//     if (params != NULL) {
-//         handle = (FILE *)params;
-//     } else {
-//         handle = stdout;
-//     }
-//     for (int i = 0 ; xtensa_perfmon_select_table[i].select != -1; i++) {
-//         if (xtensa_perfmon_select_table[i].select == select) {
-//             fprintf(handle, "Value = %9i, select = %2i, mask = %04x.  %s.\n", value, select, mask, xtensa_perfmon_select_table[i].description);
-//         }
-//     }
-//     for (int i = 0 ; xtensa_perfmon_masks_table[i].select != -1; i++) {
-//         if ((xtensa_perfmon_masks_table[i].select == select) && (xtensa_perfmon_masks_table[i].mask & mask)) {
-//             fprintf(handle, "                  %s\n", xtensa_perfmon_masks_table[i].description);
-//         }
-//     }
-// }
-
 const access = struct {
     fn xtensa_perfmon_reset(id: c_int) sys.esp_err_t {
         if (id >= sys.XCHAL_NUM_PERF_COUNTERS) {
             return sys.ESP_ERR_INVALID_ARG;
         }
-        sys.eri_write(sys.ERI_PERFMON_PM0 + id * @sizeOf(i32), 0);
+        eri.write(sys.ERI_PERFMON_PM0 + id * @sizeOf(i32), 0);
         return sys.ESP_OK;
     }
 
     fn xtensa_perfmon_start() void {
-        sys.eri_write(sys.ERI_PERFMON_PGM, sys.PGM_PMEN);
+        eri.write(sys.ERI_PERFMON_PGM, sys.PGM_PMEN);
     }
 
     fn xtensa_perfmon_stop() void {
-        sys.eri_write(sys.ERI_PERFMON_PGM, 0);
+        eri.write(sys.ERI_PERFMON_PGM, 0);
     }
 
     fn xtensa_perfmon_value(id: c_int) u32 {
         if (id >= sys.ERI_PERFMON_MAX) {
             return 0;
         }
-        const result: u32 = sys.eri_read(sys.ERI_PERFMON_PM0 + id * @sizeOf(i32));
+        const result: u32 = eri.read(sys.ERI_PERFMON_PM0 + id * @sizeOf(i32));
         return result;
+    }
+};
+
+// TODO: Move `eri` to a more logical place
+
+/// The ERI is a bus internal to each Xtensa core. It connects, amongst others, to the debug interface, where it
+/// allows reading/writing the same registers as available over JTAG.
+///
+/// Rewritten from: esp-idf-v6.1/xtensa/components/xtensa/eri.c and include/eri.h
+pub const eri = struct {
+
+    // Note: as far as I can see, no register has an addr greater than 0x20000000
+    // At least, none that the esp-idf uses.
+    // Therefore, I have chosen u32 for convenience
+    const Addr = u32;
+
+    /// Read from an 'external register'
+    pub inline fn read(addr: eri.Addr) u32 {
+        return asm volatile (
+            \\RER %[ret] %[addr]
+            : [ret] "=r" (-> u32),
+            : [addr] "r" (addr),
+            : .{});
+    }
+
+    /// Write to an 'external register'
+    pub inline fn write(addr: eri.Addr, data: u32) void {
+        asm volatile (
+            \\WER %[data] %[addr]
+            :
+            : [addr] "r" (addr),
+              [data] "r" (data),
+            : .{});
     }
 };
