@@ -55,6 +55,7 @@ const ModuleSpec = struct {
 const module_specs = [_]ModuleSpec{
     // ── leaf (no deps) ──────────────────────────────────────────────────
     .{ .name = "sys", .file = "idf-sys.zig" },
+    .{ .name = "xtensa", .file = "xtensa.zig" },
     // ── depend on sys only ──────────────────────────────────────────────
     .{ .name = "error", .file = "error.zig", .deps = &.{"sys"} },
     .{ .name = "log", .file = "logger.zig", .deps = &.{"sys"} },
@@ -96,10 +97,10 @@ const module_specs = [_]ModuleSpec{
     .{ .name = "wdt", .file = "wdt.zig", .deps = &.{ "sys", "error" } },
     .{ .name = "nimble", .file = "nimble.zig", .deps = &.{ "sys", "error" } },
     // ── depend on sys + log ────────────────────────
-    // ── depend on sys + log + error ───────────────────────────────────────────
-    .{ .name = "perfmon", .file = "perfmon.zig", .deps = &.{ "sys", "log", "error" } },
     // ── depend on sys + hw_support ────────────────────────
     .{ .name = "panic", .file = "panic.zig", .deps = &.{ "sys", "hw_support" } },
+    // ── depend on sys + log + error + xtensa ───────────────────────────────────────────
+    .{ .name = "perfmon", .file = "perfmon.zig", .deps = &.{ "sys", "log", "error", "xtensa" } },
 };
 
 /// Names re-exported by the top-level "esp_idf" umbrella module (idf.zig).
@@ -109,7 +110,7 @@ const esp_idf_exports = [_][]const u8{
     "i2c",         "i2s",    "spi",       "now",       "pulse", "http",       "dsp",    "panic",
     "rtos",        "nvs",    "partition", "sleep",     "event", "wdt",        "nimble", "hosted",
     "wifi_remote", "timer",  "ledc",      "twai",      "pm",    "pthread",    "matter", "hw_support",
-    "perfmon",
+    "perfmon",     "xtensa",
 };
 
 pub fn idf_wrapped_modules(b: *std.Build) *std.Build.Module {
