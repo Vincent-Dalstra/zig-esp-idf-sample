@@ -184,7 +184,9 @@ pub fn NewBenchmark(function: anytype) type {
             repeat: u32,
             args: Args,
         ) linksection(IRAM_ATTR) Error!Result {
-            return run_internal(pm_check_table, repeat, args, true);
+            return run_internal(pm_check_table, repeat, args, .{
+                .compare_results = true,
+            });
         }
 
         /// Use this if the function may return a different value on subsequent calls
@@ -193,14 +195,19 @@ pub fn NewBenchmark(function: anytype) type {
             repeat: u32,
             args: Args,
         ) linksection(IRAM_ATTR) Error!void {
-            _ = run_internal(pm_check_table, repeat, args, false);
+            _ = run_internal(pm_check_table, repeat, args, .{});
         }
+
+        const Option = struct {
+            compare_results: bool = false,
+            yield_between_runs: bool = false,
+        };
 
         noinline fn run_internal(
             pm_check_table: []const [2]u32,
             repeat: u32,
             args: Args,
-            compare_results: bool,
+            option: Option,
         ) linksection(IRAM_ATTR) Error!Result {
             // Warm-up the Instruction cache
             var expected_result: Result = undefined;
@@ -229,7 +236,7 @@ pub fn NewBenchmark(function: anytype) type {
                     const result, const stats = run_once_internal(
                         pm_check,
                         args,
-                        if (compare_results) expected_result else null,
+                        if (option.compare_results) expected_result else null,
                     ) catch |err| {
                         invalid += 1;
 
@@ -246,7 +253,7 @@ pub fn NewBenchmark(function: anytype) type {
                         continue;
                     };
 
-                    if (compare_results) {
+                    if (option.compare_results) {
                         if (expected_result != result) return Error.InconsistentResults;
                     }
 
