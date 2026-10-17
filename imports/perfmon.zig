@@ -308,17 +308,17 @@ pub fn NewBenchmark(function: anytype) type {
             tracelevel: c_int,
         ) linksection(IRAM_ATTR) Error!struct { Result, u32, u32 } {
             // Set up cycle counter
-            sys.xtensa_perfmon_stop();
+            access.xtensa_perfmon_stop();
             // if tracelevel used, then kernelcnt will be enabled
-            const kernelcnt: c_int = if (tracelevel >= 0) 1 else 0;
+            const kernelcnt: bool = (tracelevel >= 0);
 
-            assert(sys.ESP_OK == sys.xtensa_perfmon_init(0, @intCast(pm_check_0[0]), @intCast(pm_check_0[1]), kernelcnt, tracelevel));
-            assert(sys.ESP_OK == sys.xtensa_perfmon_init(1, @intCast(pm_check_1[0]), @intCast(pm_check_1[1]), kernelcnt, tracelevel));
+            access.xtensa_perfmon_init(0, @intCast(pm_check_0[0]), @intCast(pm_check_0[1]), kernelcnt, tracelevel);
+            access.xtensa_perfmon_init(1, @intCast(pm_check_1[0]), @intCast(pm_check_1[1]), kernelcnt, tracelevel);
 
-            sys.xtensa_perfmon_start();
+            access.xtensa_perfmon_start();
             // Do not inline the call, because that could change the instruction alignment
             const result = @call(.never_inline, function, args);
-            sys.xtensa_perfmon_stop();
+            access.xtensa_perfmon_stop();
 
             const p0 = sys.xtensa_perfmon_value(0);
             const p1 = sys.xtensa_perfmon_value(1);
@@ -392,6 +392,31 @@ const apis = struct {
 };
 
 const access = struct {
+    const PmCtrl_Register = packed struct(u32) {
+        intEn: bool = false,
+        unused1: u2 = 0,
+        krnlCnt: bool,
+        traceLevel: u4,
+        select: u5,
+        unused2: u3 = 0,
+        mask: u16,
+    };
+
+    /// Configure a performance monitor and reset the counter.
+    fn xtensa_perfmon_init(id: usize, select: u16, mask: u16, kernelcnt: bool, tracelevel: c_int) void {
+        assert(id < sys.ERI_PERFMON_MAX);
+        const pmc: PmCtrl_Register = .{
+            .krnlCnt = kernelcnt,
+            .traceLevel = @intCast(0xf & tracelevel),
+            .select = @intCast(select),
+            .mask = mask,
+        };
+
+        eri.write((@as(u32, @intCast(sys.ERI_PERFMON_PM0)) + (id * @sizeOf(u32))), 0);
+        eri.write((@as(u32, @intCast(sys.ERI_PERFMON_PMCTRL0)) + (id * @sizeOf(u32))), @bitCast(pmc));
+        return;
+    }
+
     fn xtensa_perfmon_reset(id: c_int) sys.esp_err_t {
         if (id >= sys.XCHAL_NUM_PERF_COUNTERS) {
             return sys.ESP_ERR_INVALID_ARG;
@@ -433,7 +458,7 @@ pub const eri = struct {
     /// Read from an 'external register'
     pub inline fn read(addr: eri.Addr) u32 {
         return asm volatile (
-            \\RER %[ret] %[addr]
+            \\RER %[ret], %[addr]
             : [ret] "=r" (-> u32),
             : [addr] "r" (addr),
             : .{});
@@ -442,7 +467,7 @@ pub const eri = struct {
     /// Write to an 'external register'
     pub inline fn write(addr: eri.Addr, data: u32) void {
         asm volatile (
-            \\WER %[data] %[addr]
+            \\WER %[data], %[addr]
             :
             : [addr] "r" (addr),
               [data] "r" (data),
