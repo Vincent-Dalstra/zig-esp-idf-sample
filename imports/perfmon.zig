@@ -219,7 +219,7 @@ pub fn NewBenchmark(function: anytype) type {
             }
 
             for (pm_check_table) |pm_check| {
-                const retry = repeat; // Simple
+                const retry = 3 + (repeat / 16); // Should be plenty
 
                 var results_summary: BenchMarkStatResult = .init;
 
