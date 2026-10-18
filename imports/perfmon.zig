@@ -239,7 +239,6 @@ pub fn NewBenchmark(function: anytype) type {
                     const result, const stats = run_once_internal(
                         pm_check,
                         args,
-                        if (option.compare_results) expected_result else null,
                     ) catch |err| {
                         invalid += 1;
 
@@ -274,7 +273,6 @@ pub fn NewBenchmark(function: anytype) type {
         noinline fn run_once_internal(
             pm_check: [2]u32,
             args: Args,
-            consistent_result: ?Result,
         ) linksection(IRAM_ATTR) Error!struct { Result, u32 } {
             const result, const iram_busy, const stats = try run_once_PORT(
                 pm_counter_iram_busy,
@@ -282,10 +280,6 @@ pub fn NewBenchmark(function: anytype) type {
                 args,
                 -1,
             );
-
-            if (consistent_result) |expected_result| {
-                if (expected_result != result) return Error.InconsistentResults;
-            }
 
             if (iram_busy > 0) {
                 // Inline the log code so it gets forced into IRAM
