@@ -73,6 +73,16 @@ const BenchMarkStatResult = struct {
         self.total += val;
         self.repeat += 1;
     }
+
+    // pub fn format(
+    //     self: @This(),
+    //     writer: *std.Io.Writer,
+    // ) std.Io.Writer.Error!void {
+    //     try writer.print(
+    //         "{d:9} /{d:9} /{d:9}",
+    //         .{ self.min, self.max, (self.total / self.repeat) },
+    //     );
+    // }
 };
 
 pub const Benchmark = NewBenchmark;
@@ -215,7 +225,7 @@ pub fn NewBenchmark(function: anytype) type {
             // Warm-up the Instruction cache
             var expected_result: Result = undefined;
             if (true) {
-                expected_result, const cycles, const iram_busy = try run_once_PORT(
+                expected_result, const cycles, const iram_busy = try internal.run_once(
                     pm_counter_cycles,
                     pm_counter_iram_busy,
                     args,
@@ -236,7 +246,7 @@ pub fn NewBenchmark(function: anytype) type {
                 var invalid: u32 = 0;
                 var done: u32 = 0;
                 while (done < repeat) {
-                    const result, const stats = run_once_internal(
+                    const result, const stats = run_once(
                         pm_check,
                         args,
                     ) catch |err| {
@@ -270,11 +280,11 @@ pub fn NewBenchmark(function: anytype) type {
             return expected_result;
         }
 
-        noinline fn run_once_internal(
+        pub noinline fn run_once(
             pm_check: [2]u32,
             args: Args,
         ) linksection(IRAM_ATTR) Error!struct { Result, u32 } {
-            const result, const iram_busy, const stats = try run_once_PORT(
+            const result, const iram_busy, const stats = try internal.run_once(
                 pm_counter_iram_busy,
                 pm_check,
                 args,
@@ -298,30 +308,32 @@ pub fn NewBenchmark(function: anytype) type {
         const pm_counter_cycles: [2]u32 = .{ sys.XTPERF_CNT_CYCLES, 0xffff };
         const pm_counter_iram_busy: [2]u32 = .{ sys.XTPERF_CNT_I_STALL, sys.XTPERF_MASK_I_STALL_BUSY };
 
-        noinline fn run_once_PORT(
-            pm_check_0: [2]u32,
-            pm_check_1: [2]u32,
-            args: Args,
-            tracelevel: c_int,
-        ) linksection(IRAM_ATTR) Error!struct { Result, u32, u32 } {
-            // Set up cycle counter
-            access.xtensa_perfmon_stop();
-            // if tracelevel used, then kernelcnt will be enabled
-            const kernelcnt: bool = (tracelevel >= 0);
+        const internal = struct {
+            noinline fn run_once(
+                pm_check_0: [2]u32,
+                pm_check_1: [2]u32,
+                args: Args,
+                tracelevel: c_int,
+            ) linksection(IRAM_ATTR) Error!struct { Result, u32, u32 } {
+                // Set up cycle counter
+                access.xtensa_perfmon_stop();
+                // if tracelevel used, then kernelcnt will be enabled
+                const kernelcnt: bool = (tracelevel >= 0);
 
-            access.xtensa_perfmon_init(0, @intCast(pm_check_0[0]), @intCast(pm_check_0[1]), kernelcnt, tracelevel);
-            access.xtensa_perfmon_init(1, @intCast(pm_check_1[0]), @intCast(pm_check_1[1]), kernelcnt, tracelevel);
+                access.xtensa_perfmon_init(0, @intCast(pm_check_0[0]), @intCast(pm_check_0[1]), kernelcnt, tracelevel);
+                access.xtensa_perfmon_init(1, @intCast(pm_check_1[0]), @intCast(pm_check_1[1]), kernelcnt, tracelevel);
 
-            access.xtensa_perfmon_start();
-            // Do not inline the call, because that could change the instruction alignment
-            const result = @call(.never_inline, function, args);
-            access.xtensa_perfmon_stop();
+                access.xtensa_perfmon_start();
+                // Do not inline the call, because that could change the instruction alignment
+                const result = @call(.never_inline, function, args);
+                access.xtensa_perfmon_stop();
 
-            const p0 = sys.xtensa_perfmon_value(0);
-            const p1 = sys.xtensa_perfmon_value(1);
+                const p0 = sys.xtensa_perfmon_value(0);
+                const p1 = sys.xtensa_perfmon_value(1);
 
-            return .{ result, p0, p1 };
-        }
+                return .{ result, p0, p1 };
+            }
+        };
     };
 }
 
@@ -332,7 +344,6 @@ const apis = struct {
             "min/max/avg = {d:9} /{d:9} /{d:9} , select = {d:2}, mask = 0x{x:04}",
             .{ result.min, result.max, (result.total / result.repeat), select, mask },
         );
-
         log.info(
             "    {s}.",
             .{try get_select_description(select)},
@@ -347,11 +358,6 @@ const apis = struct {
                 .{desc},
             );
         }
-
-        // log.info(
-        //     "{s}",
-        //     .{},
-        // );
     }
 
     fn get_select_description(select: u32) BenchmarkError![*:0]const u8 {
@@ -400,7 +406,7 @@ const access = struct {
     };
 
     /// Configure a performance monitor and reset the counter.
-    fn xtensa_perfmon_init(id: usize, select: u16, mask: u16, kernelcnt: bool, tracelevel: c_int) void {
+    noinline fn xtensa_perfmon_init(id: usize, select: u16, mask: u16, kernelcnt: bool, tracelevel: c_int) void {
         assert(id < sys.ERI_PERFMON_MAX);
         const pmc: PmCtrl_Register = .{
             .krnlCnt = kernelcnt,
@@ -414,7 +420,7 @@ const access = struct {
         return;
     }
 
-    fn xtensa_perfmon_reset(id: c_int) sys.esp_err_t {
+    noinline fn xtensa_perfmon_reset(id: c_int) linksection(IRAM_ATTR) sys.esp_err_t {
         if (id >= sys.XCHAL_NUM_PERF_COUNTERS) {
             return sys.ESP_ERR_INVALID_ARG;
         }
@@ -422,15 +428,15 @@ const access = struct {
         return sys.ESP_OK;
     }
 
-    fn xtensa_perfmon_start() void {
+    noinline fn xtensa_perfmon_start() linksection(IRAM_ATTR) void {
         eri.write(sys.ERI_PERFMON_PGM, sys.PGM_PMEN);
     }
 
-    fn xtensa_perfmon_stop() void {
+    noinline fn xtensa_perfmon_stop() linksection(IRAM_ATTR) void {
         eri.write(sys.ERI_PERFMON_PGM, 0);
     }
 
-    fn xtensa_perfmon_value(id: c_int) u32 {
+    noinline fn xtensa_perfmon_value(id: c_int) linksection(IRAM_ATTR) u32 {
         if (id >= sys.ERI_PERFMON_MAX) {
             return 0;
         }
