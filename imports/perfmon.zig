@@ -239,7 +239,7 @@ pub fn NewBenchmark(function: anytype) type {
                 return .{ result, p0, p1 };
             }
 
-            pub noinline fn start(
+            inline fn start(
                 pm_check_0: [2]u32,
                 pm_check_1: [2]u32,
                 tracelevel: access.TraceLevel,
@@ -251,7 +251,7 @@ pub fn NewBenchmark(function: anytype) type {
 
                 access.xtensa_perfmon_start();
             }
-            pub noinline fn stop() struct { u32, u32 } {
+            inline fn stop() struct { u32, u32 } {
                 access.xtensa_perfmon_stop();
 
                 const p0 = sys.xtensa_perfmon_value(0);
@@ -345,7 +345,7 @@ const access = struct {
     };
 
     /// Configure a performance monitor and reset the counter.
-    noinline fn xtensa_perfmon_init(id: usize, select: u16, mask: u16, traceLevel: TraceLevel) void {
+    fn xtensa_perfmon_init(id: usize, select: u16, mask: u16, traceLevel: TraceLevel) linksection(IRAM_ATTR) void {
         assert(id < sys.ERI_PERFMON_MAX);
         const pmc: PmCtrl_Register = .{
             .krnlCnt = @backingInt(traceLevel.kernelCnt),
@@ -353,33 +353,24 @@ const access = struct {
             .select = @intCast(select),
             .mask = mask,
         };
-
-        eri.write((@as(u32, @intCast(sys.ERI_PERFMON_PM0)) + (id * @sizeOf(u32))), 0);
+        xtensa_perfmon_reset(id);
         eri.write((@as(u32, @intCast(sys.ERI_PERFMON_PMCTRL0)) + (id * @sizeOf(u32))), @bitCast(pmc));
         return;
     }
 
-    noinline fn xtensa_perfmon_reset(id: c_int) linksection(IRAM_ATTR) sys.esp_err_t {
-        if (id >= sys.XCHAL_NUM_PERF_COUNTERS) {
-            return sys.ESP_ERR_INVALID_ARG;
-        }
-        eri.write(sys.ERI_PERFMON_PM0 + id * @sizeOf(i32), 0);
-        return sys.ESP_OK;
+    inline fn xtensa_perfmon_reset(id: usize) void {
+        assert(id < sys.XCHAL_NUM_PERF_COUNTERS);
+        eri.write(@as(u32, @intCast(sys.ERI_PERFMON_PM0)) + (id * @sizeOf(u32)), 0);
+        return;
     }
-
-    noinline fn xtensa_perfmon_start() linksection(IRAM_ATTR) void {
+    inline fn xtensa_perfmon_start() void {
         eri.write(sys.ERI_PERFMON_PGM, sys.PGM_PMEN);
     }
-
-    noinline fn xtensa_perfmon_stop() linksection(IRAM_ATTR) void {
+    inline fn xtensa_perfmon_stop() void {
         eri.write(sys.ERI_PERFMON_PGM, 0);
     }
-
-    noinline fn xtensa_perfmon_value(id: c_int) linksection(IRAM_ATTR) u32 {
-        if (id >= sys.ERI_PERFMON_MAX) {
-            return 0;
-        }
-        const result: u32 = eri.read(sys.ERI_PERFMON_PM0 + id * @sizeOf(i32));
-        return result;
+    inline fn xtensa_perfmon_value(id: c_int) u32 {
+        assert(id < sys.XCHAL_NUM_PERF_COUNTERS);
+        return eri.read(sys.ERI_PERFMON_PM0 + id * @sizeOf(u32));
     }
 };
