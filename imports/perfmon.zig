@@ -148,7 +148,7 @@ pub fn NewBenchmark(function: anytype) type {
                     pm_counter_cycles,
                     pm_counter_iram_busy,
                     args,
-                    -1,
+                    .all,
                 );
                 _ = cycles;
 
@@ -205,7 +205,7 @@ pub fn NewBenchmark(function: anytype) type {
                 pm_counter_iram_busy,
                 pm_check,
                 args,
-                -1,
+                .all,
             );
 
             if (iram_busy > 0) {
@@ -230,7 +230,7 @@ pub fn NewBenchmark(function: anytype) type {
                 pm_check_0: [2]u32,
                 pm_check_1: [2]u32,
                 args: Args,
-                tracelevel: c_int,
+                tracelevel: access.TraceLevel,
             ) linksection(IRAM_ATTR) struct { Result, u32, u32 } {
                 start(pm_check_0, pm_check_1, tracelevel);
                 // Do not inline the call, because that could change the instruction alignment
@@ -242,14 +242,12 @@ pub fn NewBenchmark(function: anytype) type {
             pub noinline fn start(
                 pm_check_0: [2]u32,
                 pm_check_1: [2]u32,
-                tracelevel: c_int,
+                tracelevel: access.TraceLevel,
             ) void {
                 // Set up cycle counter
                 access.xtensa_perfmon_stop();
-                // if tracelevel used, then kernelcnt will be enabled
-                const kernelcnt: bool = (tracelevel >= 0);
-                access.xtensa_perfmon_init(0, @intCast(pm_check_0[0]), @intCast(pm_check_0[1]), kernelcnt, tracelevel);
-                access.xtensa_perfmon_init(1, @intCast(pm_check_1[0]), @intCast(pm_check_1[1]), kernelcnt, tracelevel);
+                access.xtensa_perfmon_init(0, @intCast(pm_check_0[0]), @intCast(pm_check_0[1]), tracelevel);
+                access.xtensa_perfmon_init(1, @intCast(pm_check_1[0]), @intCast(pm_check_1[1]), tracelevel);
 
                 access.xtensa_perfmon_start();
             }
@@ -326,19 +324,32 @@ const access = struct {
     const PmCtrl_Register = packed struct(u32) {
         intEn: bool = false,
         unused1: u2 = 0,
-        krnlCnt: bool,
+        krnlCnt: u1,
         traceLevel: u4,
         select: u5,
         unused2: u3 = 0,
         mask: u16,
     };
 
+    const TraceLevel = struct {
+        kernelCnt: enum(u1) {
+            equalOrLess = 0, // counts only when CINTLEVEL <= val
+            greaterThan = 1, // counts only when CINTLEVEL > val
+        },
+        level: u4,
+
+        const all: TraceLevel = .{
+            .kernelCnt = .equalOrLess,
+            .level = std.math.maxInt(u4),
+        };
+    };
+
     /// Configure a performance monitor and reset the counter.
-    noinline fn xtensa_perfmon_init(id: usize, select: u16, mask: u16, kernelcnt: bool, tracelevel: c_int) void {
+    noinline fn xtensa_perfmon_init(id: usize, select: u16, mask: u16, traceLevel: TraceLevel) void {
         assert(id < sys.ERI_PERFMON_MAX);
         const pmc: PmCtrl_Register = .{
-            .krnlCnt = kernelcnt,
-            .traceLevel = @intCast(0xf & tracelevel),
+            .krnlCnt = @backingInt(traceLevel.kernelCnt),
+            .traceLevel = @intCast(0xf & traceLevel.level),
             .select = @intCast(select),
             .mask = mask,
         };
