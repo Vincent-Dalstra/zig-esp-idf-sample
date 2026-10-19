@@ -94,87 +94,6 @@ pub const Benchmark = NewBenchmark;
 /// - No side effects.
 /// - Result depends only on arguments.
 /// Otherwise, you may get interesting Results.
-pub fn OldBenchmark(function: anytype) type {
-    const Error = BenchmarkError;
-
-    const info = @typeInfo(@TypeOf(function));
-    if (info != .@"fn")
-        @compileError("Benchmark expects a function type");
-
-    const function_info = info.@"fn";
-    if (function_info.attrs.varargs)
-        @compileError("Cannot create ArgsTuple for variadic function");
-
-    const Result = function_info.return_type.?;
-    const Args = std.meta.ArgsTuple(@TypeOf(function));
-
-    return struct {
-        const Self = @This();
-
-        const TypeErased = struct {
-            result: Result,
-            args: Args,
-        };
-
-        fn typeErasedCall(params: ?*anyopaque) callconv(.c) void {
-            const p: *TypeErased = @ptrCast(@alignCast(params.?));
-            p.result = @call(.never_inline, function, p.args);
-        }
-
-        pub fn run(
-            pm_check_table: []const [2]u32,
-            repeat: u32,
-            args: Args,
-        ) Error!Result {
-            return run_internal(pm_check_table, repeat, args, true);
-        }
-
-        /// Use this if the function may return a different value on subsequent calls
-        pub fn run_not_pure(
-            pm_check_table: []const [2]u32,
-            repeat: u32,
-            args: Args,
-        ) Error!void {
-            _ = run_internal(pm_check_table, repeat, args, false);
-        }
-
-        inline fn run_internal(
-            pm_check_table: []const [2]u32,
-            repeat: u32,
-            args: Args,
-            compare_results: bool,
-        ) Error!Result {
-            var params: TypeErased = .{
-                .result = undefined,
-                .args = args,
-            };
-            // Pre-heat IRAM cache
-            typeErasedCall(@ptrCast(&params));
-            const expected_result: Result = params.result;
-
-            const pm_config: sys.xtensa_perfmon_config_t = .{
-                .counters_size = pm_check_table.len,
-                .select_mask = @ptrCast(pm_check_table.ptr),
-                .repeat_count = @intCast(repeat),
-                .max_deviation = 1,
-                .call_function = &typeErasedCall,
-                .call_params = @ptrCast(&params),
-                .callback = sys.xtensa_perfmon_view_cb,
-                .callback_params = null, // stdout
-                .tracelevel = PERFMON_TRACELEVEL,
-            };
-            const err: sys.esp_err_t = sys.xtensa_perfmon_exec(&pm_config);
-            if (err != 0) return Error.Failed;
-
-            if (compare_results) {
-                if (expected_result != params.result) return Error.InconsistentResults;
-            }
-
-            return params.result;
-        }
-    };
-}
-
 pub fn NewBenchmark(function: anytype) type {
     const Error = BenchmarkError;
 
@@ -268,9 +187,7 @@ pub fn NewBenchmark(function: anytype) type {
                     if (option.compare_results) {
                         if (expected_result != result) return Error.InconsistentResults;
                     }
-
                     results_summary.add_result(stats);
-
                     done += 1;
                 }
                 log.debug("Total = {}", .{results_summary.total});
