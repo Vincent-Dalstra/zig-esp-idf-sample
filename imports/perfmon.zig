@@ -144,7 +144,7 @@ pub fn NewBenchmark(function: anytype) type {
             // Warm-up the Instruction cache
             var expected_result: Result = undefined;
             if (true) {
-                expected_result, const cycles, const iram_busy = try internal.run_once(
+                expected_result, const cycles, const iram_busy = internal.run_once(
                     pm_counter_cycles,
                     pm_counter_iram_busy,
                     args,
@@ -201,7 +201,7 @@ pub fn NewBenchmark(function: anytype) type {
             pm_check: [2]u32,
             args: Args,
         ) linksection(IRAM_ATTR) Error!struct { Result, u32 } {
-            const result, const iram_busy, const stats = try internal.run_once(
+            const result, const iram_busy, const stats = internal.run_once(
                 pm_counter_iram_busy,
                 pm_check,
                 args,
@@ -231,24 +231,35 @@ pub fn NewBenchmark(function: anytype) type {
                 pm_check_1: [2]u32,
                 args: Args,
                 tracelevel: c_int,
-            ) linksection(IRAM_ATTR) Error!struct { Result, u32, u32 } {
+            ) linksection(IRAM_ATTR) struct { Result, u32, u32 } {
+                start(pm_check_0, pm_check_1, tracelevel);
+                // Do not inline the call, because that could change the instruction alignment
+                const result = @call(.never_inline, function, args);
+                const p0, const p1 = stop();
+                return .{ result, p0, p1 };
+            }
+
+            pub noinline fn start(
+                pm_check_0: [2]u32,
+                pm_check_1: [2]u32,
+                tracelevel: c_int,
+            ) void {
                 // Set up cycle counter
                 access.xtensa_perfmon_stop();
                 // if tracelevel used, then kernelcnt will be enabled
                 const kernelcnt: bool = (tracelevel >= 0);
-
                 access.xtensa_perfmon_init(0, @intCast(pm_check_0[0]), @intCast(pm_check_0[1]), kernelcnt, tracelevel);
                 access.xtensa_perfmon_init(1, @intCast(pm_check_1[0]), @intCast(pm_check_1[1]), kernelcnt, tracelevel);
 
                 access.xtensa_perfmon_start();
-                // Do not inline the call, because that could change the instruction alignment
-                const result = @call(.never_inline, function, args);
+            }
+            pub noinline fn stop() struct { u32, u32 } {
                 access.xtensa_perfmon_stop();
 
                 const p0 = sys.xtensa_perfmon_value(0);
                 const p1 = sys.xtensa_perfmon_value(1);
 
-                return .{ result, p0, p1 };
+                return .{ p0, p1 };
             }
         };
     };
