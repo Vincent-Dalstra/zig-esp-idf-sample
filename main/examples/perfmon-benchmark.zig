@@ -31,9 +31,21 @@ const log = std.log.scoped(.perfmon_example);
 const Benchmark_pure = perfmon.BenchmarkPure;
 const Benchmark = perfmon.Benchmark;
 
-const checks = perfmon.perfmon_check_table.simple;
+const checks = &perfmon.perfmon_check_table.new_simple;
 
 const REPEAT = 10;
+
+export fn app_main() callconv(.c) void {
+    basic_benchmark() catch |err| {
+        @panic(@errorName(err));
+    };
+
+    idf.rtos.Task.delayMs(2000);
+    run_optimised_functions() catch |err| {
+        @panic(@errorName(err));
+    };
+    log.info("The end!", .{});
+}
 
 /// Function to be benchmarked
 noinline fn add_up_numbers(numbers: []const i32) i32 {
@@ -59,7 +71,7 @@ fn reset_numbers(numbers: []i32) void {
     @memcpy(numbers, &reset);
 }
 
-export fn app_main() callconv(.c) void {
+fn basic_benchmark() !void {
     var numbers: [4]i32 = .{ 1, 2, 3, 4 };
 
     // The simplest way to benchmark a function
@@ -70,9 +82,7 @@ export fn app_main() callconv(.c) void {
         const expected_result = add_up_numbers(&numbers);
 
         log.info("benchmark add_up_numbers()", .{});
-        const benched_result = Benchmark_pure(add_up_numbers).run(checks, REPEAT, .{&numbers}) catch {
-            @panic("Benchmark error!");
-        };
+        const benched_result = try Benchmark_pure(add_up_numbers).run(checks, REPEAT, .{&numbers});
 
         log.info("Result = {}", .{benched_result});
         assert(expected_result == benched_result);
@@ -83,20 +93,12 @@ export fn app_main() callconv(.c) void {
     {
         const expected_result = running_total(&numbers);
         log.info("benchmark running_total(), resetting arguments between runs", .{});
-        const benched_result = perfmon.Benchmark(running_total, reset_numbers).run(checks, REPEAT, .{&numbers}) catch {
-            @panic("Benchmark error!");
-        };
+        const benched_result = try perfmon.Benchmark(running_total, reset_numbers).run(checks, REPEAT, .{&numbers});
 
         log.info("Result = {}", .{benched_result});
         assert(expected_result == benched_result);
         assert(std.mem.eql(i32, &numbers, &[4]i32{ 1, 3, 6, 10 }));
     }
-
-    idf.rtos.Task.delayMs(2000);
-    run_optimised_functions() catch {
-        @panic("Benchmark error!");
-    };
-    log.info("The end!", .{});
 }
 
 const ARRAY_LENGTH: i32 = 1000;
