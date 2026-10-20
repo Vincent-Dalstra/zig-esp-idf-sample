@@ -42,6 +42,136 @@ pub const perfmon_check_table = struct {
         .{ sys.XTPERF_CNT_BUBBLES, sys.XTPERF_MASK_BUBBLES_R_HOLD_REG_DEP }, // Wait for register dependency
         .{ sys.XTPERF_CNT_OVERFLOW, sys.XTPERF_MASK_OVERFLOW }, // Last test cycle
     };
+
+    const new_table_simple: [7]Statistic.Mask = .{
+        .XTPERF_CNT_CYCLES.all,
+        .XTPERF_CNT_INSN.all,
+        .XTPERF_CNT_D_LOAD_U1.all,
+        .XTPERF_CNT_D_STORE_U1.all,
+        .XTPERF_CNT_BUBBLES.all.except(.R_HOLD_REG_DEP),
+        .XTPERF_CNT_BUBBLES.R_HOLD_REG_DEP,
+        .XTPERF_CNT_OVERFLOW.all,
+    };
+};
+
+const Statistic = struct {
+    const PmCtrl_Register = packed struct(u32) {
+        intEn: bool = false,
+        unused1: u2 = 0,
+        krnlCnt: u1,
+        traceLevel: u4,
+        select: u5,
+        unused2: u3 = 0,
+        mask: u16,
+
+        fn construct(select: Select, mask: Mask, traceLevel: access.TraceLevel) PmCtrl_Register {
+            return .{
+                .krnlCnt = @backingInt(traceLevel.kernelCnt),
+                .traceLevel = @intCast(0xf & traceLevel.level),
+                .select = @backingInt(select),
+                .mask = @backingInt(mask),
+            };
+        }
+    };
+
+    const Select = enum(u5) {
+        XTPERF_CNT_CYCLES,
+        XTPERF_CNT_OVERFLOW,
+        XTPERF_CNT_INSN,
+        XTPERF_CNT_D_STALL,
+        XTPERF_CNT_I_STALL,
+        XTPERF_CNT_EXR,
+        XTPERF_CNT_BUBBLES,
+        XTPERF_CNT_I_TLB,
+        XTPERF_CNT_I_MEM,
+        XTPERF_CNT_D_TLB,
+        XTPERF_CNT_D_LOAD_U1,
+        XTPERF_CNT_D_LOAD_U2,
+        XTPERF_CNT_D_LOAD_U3,
+        XTPERF_CNT_D_STORE_U1,
+        XTPERF_CNT_D_STORE_U2,
+        XTPERF_CNT_D_STORE_U3,
+        XTPERF_CNT_D_ACCESS_U1,
+        XTPERF_CNT_D_ACCESS_U2,
+        XTPERF_CNT_D_ACCESS_U3,
+        XTPERF_CNT_MULTIPLE_LS,
+        XTPERF_CNT_OUTBOUND_PIF,
+        XTPERF_CNT_INBOUND_PIF,
+        XTPERF_CNT_PREFETCH,
+        // TODO: not available on the ESP32, only the ESP32-S2 and ESP32-S3
+        // #if XCHAL_HW_VERSION >= 270004
+        //     XTPERF_CNT_IDMA, "iDMA"},
+        //     XTPERF_CNT_INSN_LENGTH, "Length of Instructions"},
+        // #endif
+    };
+    const Mask = union(Select) {
+        XTPERF_CNT_CYCLES: packed struct(u16) {
+            cycles: bool,
+            const all: @This() = @fromBackingInt(@intCast(0x0001));
+        },
+        XTPERF_CNT_OVERFLOW: packed struct(u16) {
+            cycles: bool,
+            const all: @This() = @fromBackingInt(@intCast(0x0001));
+        },
+        XTPERF_CNT_INSN: packed struct(u16) {
+            JX: bool,
+            CALLX: bool,
+            RET: bool,
+            RF: bool,
+            BRANCH_TAKEN: bool,
+            J: bool,
+            CALL: bool,
+            BRANCH_NOT_TAKEN: bool,
+            LOOP_TAKEN: bool,
+            unused0: bool,
+            LOOP_BEGIN: bool,
+            LOOP_END: bool,
+            NON_BRANCH: bool,
+            unused: u3,
+            const all: @This() = @fromBackingInt(@intCast(0x8DFF));
+            fn except(this: @This(), unset: @This()) @This() {
+                return (@backingInt(this) & ~@backingInt(unset));
+            }
+        },
+        XTPERF_CNT_BUBBLES: packed struct(u16) {
+            PSO: bool,
+            unused0: bool,
+            R_HOLD_D_CACHE_MISS: bool,
+            R_HOLD_STORE_RELEASE: bool,
+            R_HOLD_REG_DEP: bool,
+            R_HOLD_WAIT: bool,
+            R_HOLD_HALT: bool,
+            CTI: bool,
+            WAIT1: bool,
+            unused: u7,
+            const all: @This() = @fromBackingInt(@intCast(0x01FD));
+            fn except(this: @This(), unset: @This()) @This() {
+                return (@backingInt(this) & ~@backingInt(unset));
+            }
+        },
+        XTPERF_CNT_D_LOAD_U1: packed struct(u16) {
+            CACHE_HITS: bool,
+            CACHE_MISSES: bool,
+            LOCAL_MEM: bool,
+            LOCAL_BYPASS: bool,
+            unused: u12,
+            const all: @This() = @fromBackingInt(@intCast(0x0008));
+            fn except(this: @This(), unset: @This()) @This() {
+                return (@backingInt(this) & ~@backingInt(unset));
+            }
+        },
+        XTPERF_CNT_D_STORE_U1: packed struct(u16) {
+            CACHE_HITS: bool,
+            CACHE_MISSES: bool,
+            LOCAL_MEM: bool,
+            LOCAL_BYPASS: bool,
+            unused: u12,
+            const all: @This() = @fromBackingInt(@intCast(0x0008));
+            fn except(this: @This(), unset: @This()) @This() {
+                return (@backingInt(this) & ~@backingInt(unset));
+            }
+        },
+    };
 };
 
 const PERFMON_TRACELEVEL: c_int = -1;
