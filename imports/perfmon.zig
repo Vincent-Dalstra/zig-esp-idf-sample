@@ -243,7 +243,7 @@ pub fn NewBenchmark(function: anytype) type {
 }
 
 pub const counter = struct {
-    // Reset, configure and start both counters.
+    /// Reset, configure and start both counters.
     pub inline fn start(
         pm_check_0: [2]u32,
         pm_check_1: [2]u32,
@@ -347,8 +347,11 @@ const access = struct {
         };
     };
 
+    const Id = std.math.IntFittingRange(0, (sys.ERI_PERFMON_MAX - 1));
+    const RegWidth = u32;
+
     /// Configure one of the performance monitors and reset its counter
-    fn xtensa_perfmon_init(id: usize, select: u16, mask: u16, traceLevel: TraceLevel) linksection(IRAM_ATTR) void {
+    fn xtensa_perfmon_init(id: Id, select: u16, mask: u16, traceLevel: TraceLevel) linksection(IRAM_ATTR) void {
         assert(id < sys.ERI_PERFMON_MAX);
         const pmc: PmCtrl_Register = .{
             .krnlCnt = @backingInt(traceLevel.kernelCnt),
@@ -357,24 +360,29 @@ const access = struct {
             .mask = mask,
         };
         xtensa_perfmon_reset(id);
-        eri.write((@as(u32, @intCast(sys.ERI_PERFMON_PMCTRL0)) + (id * @sizeOf(u32))), @bitCast(pmc));
+        eri.write(regAddr(sys.ERI_PERFMON_PMCTRL0, id), @bitCast(pmc));
         return;
+    }
+    /// Reset a counter to 0
+    fn xtensa_perfmon_reset(id: Id) void {
+        assert(id < sys.XCHAL_NUM_PERF_COUNTERS);
+        eri.write(regAddr(sys.ERI_PERFMON_PM0, id), 0);
+        return;
+    }
+    fn xtensa_perfmon_value(id: Id) u32 {
+        assert(id < sys.XCHAL_NUM_PERF_COUNTERS);
+        return eri.read(regAddr(sys.ERI_PERFMON_PM0, id));
+    }
+    fn regAddr(regBase: c_int, id: Id) u32 {
+        return (@as(u32, @intCast(regBase)) + (@as(u32, id) * @sizeOf(RegWidth)));
     }
 
-    /// Reset a counter to 0
-    inline fn xtensa_perfmon_reset(id: usize) void {
-        assert(id < sys.XCHAL_NUM_PERF_COUNTERS);
-        eri.write(@as(u32, @intCast(sys.ERI_PERFMON_PM0)) + (id * @sizeOf(u32)), 0);
-        return;
-    }
+    /// Always inline (a function return would affect the results)
     inline fn xtensa_perfmon_start() void {
         eri.write(sys.ERI_PERFMON_PGM, sys.PGM_PMEN);
     }
+    /// Always inline (a function call would affect the results)
     inline fn xtensa_perfmon_stop() void {
         eri.write(sys.ERI_PERFMON_PGM, 0);
-    }
-    inline fn xtensa_perfmon_value(id: c_int) u32 {
-        assert(id < sys.XCHAL_NUM_PERF_COUNTERS);
-        return eri.read(sys.ERI_PERFMON_PM0 + id * @sizeOf(u32));
     }
 };
