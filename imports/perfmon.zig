@@ -232,36 +232,39 @@ pub fn NewBenchmark(function: anytype) type {
                 args: Args,
                 tracelevel: access.TraceLevel,
             ) linksection(IRAM_ATTR) struct { Result, u32, u32 } {
-                start(pm_check_0, pm_check_1, tracelevel);
+                counter.start(pm_check_0, pm_check_1, tracelevel);
                 // Do not inline the call, because that could change the instruction alignment
                 const result = @call(.never_inline, function, args);
-                const p0, const p1 = stop();
+                const p0, const p1 = counter.stop();
                 return .{ result, p0, p1 };
-            }
-
-            inline fn start(
-                pm_check_0: [2]u32,
-                pm_check_1: [2]u32,
-                tracelevel: access.TraceLevel,
-            ) void {
-                // Set up cycle counter
-                access.xtensa_perfmon_stop();
-                access.xtensa_perfmon_init(0, @intCast(pm_check_0[0]), @intCast(pm_check_0[1]), tracelevel);
-                access.xtensa_perfmon_init(1, @intCast(pm_check_1[0]), @intCast(pm_check_1[1]), tracelevel);
-
-                access.xtensa_perfmon_start();
-            }
-            inline fn stop() struct { u32, u32 } {
-                access.xtensa_perfmon_stop();
-
-                const p0 = sys.xtensa_perfmon_value(0);
-                const p1 = sys.xtensa_perfmon_value(1);
-
-                return .{ p0, p1 };
             }
         };
     };
 }
+
+pub const counter = struct {
+    // Reset, configure and start both counters.
+    pub inline fn start(
+        pm_check_0: [2]u32,
+        pm_check_1: [2]u32,
+        tracelevel: access.TraceLevel,
+    ) void {
+        access.xtensa_perfmon_stop();
+        access.xtensa_perfmon_init(0, @intCast(pm_check_0[0]), @intCast(pm_check_0[1]), tracelevel);
+        access.xtensa_perfmon_init(1, @intCast(pm_check_1[0]), @intCast(pm_check_1[1]), tracelevel);
+
+        access.xtensa_perfmon_start();
+    }
+    // Collect the results of both counters
+    pub inline fn stop() struct { u32, u32 } {
+        access.xtensa_perfmon_stop();
+
+        const p0 = sys.xtensa_perfmon_value(0);
+        const p1 = sys.xtensa_perfmon_value(1);
+
+        return .{ p0, p1 };
+    }
+};
 
 const apis = struct {
     // Rewrite & improvement of `sys.xtensa_perfmon_view_cb`
@@ -344,7 +347,7 @@ const access = struct {
         };
     };
 
-    /// Configure a performance monitor and reset the counter.
+    /// Configure one of the performance monitors and reset its counter
     fn xtensa_perfmon_init(id: usize, select: u16, mask: u16, traceLevel: TraceLevel) linksection(IRAM_ATTR) void {
         assert(id < sys.ERI_PERFMON_MAX);
         const pmc: PmCtrl_Register = .{
@@ -358,6 +361,7 @@ const access = struct {
         return;
     }
 
+    /// Reset a counter to 0
     inline fn xtensa_perfmon_reset(id: usize) void {
         assert(id < sys.XCHAL_NUM_PERF_COUNTERS);
         eri.write(@as(u32, @intCast(sys.ERI_PERFMON_PM0)) + (id * @sizeOf(u32)), 0);
