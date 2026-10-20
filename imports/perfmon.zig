@@ -52,6 +52,7 @@ const BenchmarkError = error{
     IramBusyStall,
     UnknownCounter,
     UnknownCounterMask,
+    ResetFunctionReturnedNull,
 };
 
 const BenchMarkStatResult = struct {
@@ -85,28 +86,51 @@ const BenchMarkStatResult = struct {
     // }
 };
 
-pub const Benchmark = NewBenchmark;
-
 /// Note: `function` will be executed multiple times!
 /// This is necessary to collect each of the different statistics.
 ///
 /// It is recommended that `function` be a 'pure function', i.e.
 /// - No side effects.
 /// - Result depends only on arguments.
-/// Otherwise, you may get interesting Results.
-pub fn NewBenchmark(function: anytype) type {
+///
+/// Otherwise, you should call `NewBenchMark` directly, which lets you provide
+/// a function to `reset` things between each call.
+pub fn BenchmarkPure(function: anytype) type {
+    return Benchmark(function, null);
+}
+pub const Benchmark = NewBenchmark;
+
+pub fn NewBenchmark(workFn: anytype, resetFn: anytype) type {
     const Error = BenchmarkError;
 
-    const info = @typeInfo(@TypeOf(function));
+    const info = @typeInfo(@TypeOf(workFn));
     if (info != .@"fn")
-        @compileError("Benchmark expects a function type");
+        @compileError("Benchmark expects a function!");
 
-    const function_info = info.@"fn";
-    if (function_info.attrs.varargs)
+    const workFn_info = info.@"fn";
+    if (workFn_info.attrs.varargs)
         @compileError("Cannot create ArgsTuple for variadic function");
 
-    const Result = function_info.return_type.?;
-    const Args = std.meta.ArgsTuple(@TypeOf(function));
+    const Result = workFn_info.return_type.?;
+    const Args = std.meta.ArgsTuple(@TypeOf(workFn));
+
+    const resetFn_info = @typeInfo(@TypeOf(resetFn));
+    const ResetResult = if (resetFn_info == .null) void else blk: {
+        if (info != .@"fn")
+            @compileError("Reset must be `null` or a function!");
+        const resetFn_info_function = resetFn_info.@"fn";
+        if (resetFn_info_function.attrs.varargs)
+            @compileError("Reset fn must not be variadic");
+        const ResetArgs = std.meta.ArgsTuple(@TypeOf(workFn));
+        if (Args != ResetArgs) {
+            @compileError("Reset function must take the same arguments as the benchmarked function");
+        }
+
+        if (resetFn_info_function.return_type.? != void and resetFn_info_function.return_type.? != ?void) {
+            @compileError("Reset function must have type `void` or `?void`");
+        }
+        break :blk resetFn_info_function.return_type.?;
+    };
 
     return struct {
         const Self = @This();
@@ -144,6 +168,7 @@ pub fn NewBenchmark(function: anytype) type {
             // Warm-up the Instruction cache
             var expected_result: Result = undefined;
             if (true) {
+                try reset_internal(args);
                 expected_result, const cycles, const iram_busy = internal.run_once(
                     pm_counter_cycles,
                     pm_counter_iram_busy,
@@ -165,6 +190,7 @@ pub fn NewBenchmark(function: anytype) type {
                 var invalid: u32 = 0;
                 var done: u32 = 0;
                 while (done < repeat) {
+                    try reset_internal(args);
                     const result, const stats = run_once(
                         pm_check,
                         args,
@@ -195,6 +221,18 @@ pub fn NewBenchmark(function: anytype) type {
                 try apis.print_results(pm_check[0], pm_check[1], results_summary);
             }
             return expected_result;
+        }
+
+        inline fn reset_internal(args: Args) Error!void {
+            if (resetFn_info == .null) {
+                return; // no reset required
+            } else {
+                switch (ResetResult) {
+                    void => @call(.auto, resetFn, args),
+                    ?void => @call(.auto, resetFn, args) orelse return Error.ResetFunctionReturnedNull,
+                    else => unreachable,
+                }
+            }
         }
 
         pub noinline fn run_once(
@@ -234,7 +272,7 @@ pub fn NewBenchmark(function: anytype) type {
             ) linksection(IRAM_ATTR) struct { Result, u32, u32 } {
                 counter.start(pm_check_0, pm_check_1, tracelevel);
                 // Do not inline the call, because that could change the instruction alignment
-                const result = @call(.never_inline, function, args);
+                const result = @call(.never_inline, workFn, args);
                 const p0, const p1 = counter.stop();
                 return .{ result, p0, p1 };
             }

@@ -28,16 +28,15 @@ const assert = std.debug.assert;
 
 const log = std.log.scoped(.perfmon_example);
 
+const Benchmark_pure = perfmon.BenchmarkPure;
+const Benchmark = perfmon.Benchmark;
+
 const checks = perfmon.perfmon_check_table.simple;
 
 const REPEAT = 10;
 
 /// Function to be benchmarked
 noinline fn add_up_numbers(numbers: []const i32) i32 {
-    assert(std.mem.isAligned(@intFromPtr(numbers.ptr), 16));
-    assert(numbers.len % 4 == 0);
-    assert(numbers.len > 0);
-
     var sum: i32 = 0;
     for (numbers) |n| {
         sum += n;
@@ -45,22 +44,57 @@ noinline fn add_up_numbers(numbers: []const i32) i32 {
     return sum;
 }
 
+/// A function that edits its arguments
+noinline fn running_total(numbers: []i32) i32 {
+    var sum: i32 = 0;
+    for (numbers) |*n| {
+        sum += n.*;
+        n.* = sum;
+    }
+    return sum;
+}
+
+fn reset_numbers(numbers: []i32) void {
+    const reset: [4]i32 = .{ 1, 2, 3, 4 };
+    @memcpy(numbers, &reset);
+}
+
 export fn app_main() callconv(.c) void {
-    var numbers: [4]i32 align(16) = .{ 1, 2, 3, 4 };
+    var numbers: [4]i32 = .{ 1, 2, 3, 4 };
 
-    const result0 = add_up_numbers(&numbers);
+    // The simplest way to benchmark a function
+    // For each statistic, run the function multiple times, and collect the min/max/average
+    // If it detects an 'IRAM busy stall' (i.e. instructions are in flash and not yet cached)
+    // it will discard the result and retry.
+    {
+        const expected_result = add_up_numbers(&numbers);
 
-    log.info("benchmark add_up_numbers()", .{});
-    const result1 = perfmon.Benchmark(total.zig_loop).run(checks, REPEAT, .{&numbers}) catch {
-        @panic("Benchmark failed");
-    };
+        log.info("benchmark add_up_numbers()", .{});
+        const benched_result = Benchmark_pure(add_up_numbers).run(checks, REPEAT, .{&numbers}) catch {
+            @panic("Benchmark error!");
+        };
 
-    log.info("Result = {}", .{result1});
-    assert(result0 == result1);
+        log.info("Result = {}", .{benched_result});
+        assert(expected_result == benched_result);
+    }
+
+    // If the function modifies data that is pointed-to by its arguments,
+    // provide another function to reset this data.
+    {
+        const expected_result = running_total(&numbers);
+        log.info("benchmark running_total(), resetting arguments between runs", .{});
+        const benched_result = perfmon.Benchmark(running_total, reset_numbers).run(checks, REPEAT, .{&numbers}) catch {
+            @panic("Benchmark error!");
+        };
+
+        log.info("Result = {}", .{benched_result});
+        assert(expected_result == benched_result);
+        assert(std.mem.eql(i32, &numbers, &[4]i32{ 1, 3, 6, 10 }));
+    }
 
     idf.rtos.Task.delayMs(2000);
     run_optimised_functions() catch {
-        @panic("Benchmark failed");
+        @panic("Benchmark error!");
     };
     log.info("The end!", .{});
 }
@@ -76,41 +110,41 @@ fn run_optimised_functions() !void {
 
     {
         log.info("do nothing", .{});
-        const result = try perfmon.Benchmark(total.do_nothing).run(checks, REPEAT, .{&numbers});
+        const result = try Benchmark_pure(total.do_nothing).run(checks, REPEAT, .{&numbers});
         log.info("Result = {}", .{result});
     }
     idf.rtos.Task.yield();
     {
         log.info("zig loop", .{});
-        const result = try perfmon.Benchmark(total.zig_loop).run(checks, REPEAT, .{&numbers});
+        const result = try Benchmark_pure(total.zig_loop).run(checks, REPEAT, .{&numbers});
         log.info("Result = {}", .{result});
         if (result != EXPECTED) @panic("");
     }
     idf.rtos.Task.yield();
     {
         log.info("asm loop (should be similar to zig loop)", .{});
-        const result = try perfmon.Benchmark(total.basic_loop_0).run(checks, REPEAT, .{&numbers});
+        const result = try Benchmark_pure(total.basic_loop_0).run(checks, REPEAT, .{&numbers});
         log.info("Result = {}", .{result});
         if (result != EXPECTED) @panic("");
     }
     idf.rtos.Task.yield();
     {
         log.info("asm loop, without the data hazard", .{});
-        const result = try perfmon.Benchmark(total.basic_loop_1).run(checks, REPEAT, .{&numbers});
+        const result = try Benchmark_pure(total.basic_loop_1).run(checks, REPEAT, .{&numbers});
         log.info("Result = {}", .{result});
         if (result != EXPECTED) @panic("");
     }
     idf.rtos.Task.yield();
     {
         log.info("zero-overhead loop", .{});
-        const result = try perfmon.Benchmark(total.zero_overhead_loop_0).run(checks, REPEAT, .{&numbers});
+        const result = try Benchmark_pure(total.zero_overhead_loop_0).run(checks, REPEAT, .{&numbers});
         log.info("Result = {}", .{result});
         if (result != EXPECTED) @panic("");
     }
     idf.rtos.Task.yield();
     {
         log.info("mis-aligned instruction at zero-overhead loop start", .{});
-        const result = try perfmon.Benchmark(total.zero_overhead_loop_1).run(checks, REPEAT, .{&numbers});
+        const result = try Benchmark_pure(total.zero_overhead_loop_1).run(checks, REPEAT, .{&numbers});
         log.info("Result = {}", .{result});
         if (result != EXPECTED) @panic("");
     }
@@ -122,34 +156,34 @@ fn run_optimised_functions() !void {
         idf.rtos.Task.yield();
         {
             log.info("zig loop, @Vector", .{});
-            const result = try perfmon.Benchmark(total.zig_loop_vec).run(checks, REPEAT, .{&numbers});
+            const result = try Benchmark_pure(total.zig_loop_vec).run(checks, REPEAT, .{&numbers});
             log.info("Result = {}", .{result});
             if (result != EXPECTED) @panic("");
         }
         idf.rtos.Task.yield();
         {
             log.info("vectorised zero-overhead loop", .{});
-            const result = try perfmon.Benchmark(total.vectorised_0).run(checks, REPEAT, .{&numbers});
+            const result = try Benchmark_pure(total.vectorised_0).run(checks, REPEAT, .{&numbers});
             log.info("Result = {}", .{result});
             if (result != EXPECTED) @panic("");
         }
         idf.rtos.Task.yield();
         {
             log.info("improved vector code", .{});
-            const result = try perfmon.Benchmark(total.vectorised_1).run(checks, REPEAT, .{&numbers});
+            const result = try Benchmark_pure(total.vectorised_1).run(checks, REPEAT, .{&numbers});
             log.info("Result = {}", .{result});
             if (result != EXPECTED) @panic("");
         }
         idf.rtos.Task.yield();
         {
             log.info("Use more vector registers", .{});
-            const result = try perfmon.Benchmark(total.vectorised_2).run(checks, REPEAT, .{&numbers});
+            const result = try Benchmark_pure(total.vectorised_2).run(checks, REPEAT, .{&numbers});
             log.info("Result = {}", .{result});
             if (result != EXPECTED) @panic("");
         }
         {
             log.info("Align zero-copy loop to prevent wasted cycle", .{});
-            const result = try perfmon.Benchmark(total.vectorised_3).run(checks, REPEAT, .{&numbers});
+            const result = try Benchmark_pure(total.vectorised_3).run(checks, REPEAT, .{&numbers});
             log.info("Result = {}", .{result});
             if (result != EXPECTED) @panic("");
         }
