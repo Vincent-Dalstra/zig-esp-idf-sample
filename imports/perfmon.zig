@@ -387,6 +387,8 @@ const access = struct {
         assert(id < sys.ERI_PERFMON_MAX);
         const pmc: PmCtrl_Register = .construct(stat.infer(), stat, traceLevel);
         xtensa_perfmon_reset(id);
+        @call(.always_inline, log.warn, .{ "pmc=0x{x:08}", .{@as(u32, @bitCast(pmc))} });
+
         eri.write(regAddr(sys.ERI_PERFMON_PMCTRL0, id), @bitCast(pmc));
         return;
     }
