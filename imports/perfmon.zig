@@ -108,12 +108,12 @@ const BenchMarkStatResult = struct {
 ///
 /// Otherwise, you should call `NewBenchMark` directly, which lets you provide
 /// a function to `reset` things between each call.
-pub fn BenchmarkPure(function: anytype) type {
-    return Benchmark(function, null);
+pub fn BenchmarkPure(comptime stat_table: []const Statistic, function: anytype) type {
+    return Benchmark(stat_table, function, null);
 }
 pub const Benchmark = NewBenchmark;
 
-pub fn NewBenchmark(workFn: anytype, resetFn: anytype) type {
+pub fn NewBenchmark(comptime stat_table: []const Statistic, workFn: anytype, resetFn: anytype) type {
     const Error = BenchmarkError;
 
     const info = @typeInfo(@TypeOf(workFn));
@@ -149,22 +149,20 @@ pub fn NewBenchmark(workFn: anytype, resetFn: anytype) type {
         const Self = @This();
 
         pub inline fn run(
-            pm_check_table: []const Statistic,
             repeat: u32,
             args: Args,
         ) linksection(IRAM_ATTR) Error!Result {
-            return run_internal(pm_check_table, repeat, args, .{
+            return run_internal(repeat, args, .{
                 .compare_results = true,
             });
         }
 
         /// Use this if the function may return a different value on subsequent calls
         pub inline fn run_not_pure(
-            pm_check_table: []const Statistic,
             repeat: u32,
             args: Args,
         ) linksection(IRAM_ATTR) Error!void {
-            _ = run_internal(pm_check_table, repeat, args, .{});
+            _ = run_internal(repeat, args, .{});
         }
 
         const Option = struct {
@@ -173,7 +171,6 @@ pub fn NewBenchmark(workFn: anytype, resetFn: anytype) type {
         };
 
         noinline fn run_internal(
-            stat_table: []const Statistic,
             repeat: u32,
             args: Args,
             option: Option,
