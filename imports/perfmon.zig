@@ -13,13 +13,16 @@ const IRAM_ATTR = ".iram1";
 // Forces code into IRAM instead of flash
 // const FORCE_IRAM_ATTR = ".iram1"; // Combine IRAM_ATTR with 'noinline'
 
-// if (@hasDecl(sys, "CONFIG_IDF_TARGET_ARCH_XTENSA")) {
-//     ;
-// } else if (@hasDecl(sys, "CONFIG_IDF_TARGET_ARCH_RISCV")) {
-//     @compileError("Perfmon is not supported on RISC-V tasks");
-// } else {
-//     @compileError("Unexpected target architecture: " ++ sys.CONFIG_IDF_TARGET_ARCH);
-// }
+comptime {
+    if (std.mem.eql(u8, "xtensa", sys.CONFIG_IDF_TARGET_ARCH)) {
+        assert(@hasDecl(sys, "CONFIG_IDF_TARGET_ARCH_XTENSA"));
+    } else if (std.mem.eql(u8, "riscv", sys.CONFIG_IDF_TARGET_ARCH)) {
+        assert(@hasDecl(sys, "CONFIG_IDF_TARGET_ARCH_RISCV"));
+        @compileError("Perfmon is not supported on RISC-V Architecture");
+    } else {
+        @compileError("Unknown target architecture: " ++ sys.CONFIG_IDF_TARGET_ARCH);
+    }
+}
 
 /// To make things easy, pass an array of which statistics to collect
 /// Only one statistic can be collected at a time, so it has to repeat the
