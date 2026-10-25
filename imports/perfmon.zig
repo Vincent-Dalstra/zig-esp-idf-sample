@@ -124,7 +124,7 @@ pub fn NewBenchmark(comptime stat_table: []const Statistic, workFn: anytype, res
     if (workFn_info.attrs.varargs)
         @compileError("Cannot create ArgsTuple for variadic function");
 
-    const Result = workFn_info.return_type.?;
+    const ReturnValue = workFn_info.return_type.?;
     const Args = std.meta.ArgsTuple(@TypeOf(workFn));
 
     const resetFn_info = @typeInfo(@TypeOf(resetFn));
@@ -148,21 +148,51 @@ pub fn NewBenchmark(comptime stat_table: []const Statistic, workFn: anytype, res
     return struct {
         const Self = @This();
 
+        const Results = struct {
+            // repeat: [stat_table.len]u32,
+            // min: [stat_table.len]u32,
+            // max: [stat_table.len]u32,
+            // total: [stat_table.len]u64,
+            r: [stat_table.len]BenchMarkStatResult,
+
+            noinline fn print(
+                results: Results,
+                repeat: u32,
+            ) Error!void {
+                _ = repeat;
+                for (results.r, stat_table) |result, stat| {
+                    try apis.print_result(stat, result);
+                }
+            }
+        };
+
+        pub inline fn run_and_print(
+            repeat: u32,
+            args: Args,
+        ) linksection(IRAM_ATTR) Error!ReturnValue {
+            // print_results(repeat, results);
+
+            const results, const return_value = try run_internal(repeat, args, .{});
+            try results.print(repeat);
+            return return_value;
+        }
+
         pub inline fn run(
             repeat: u32,
             args: Args,
-        ) linksection(IRAM_ATTR) Error!Result {
+        ) linksection(IRAM_ATTR) Error!struct { Results, ReturnValue } {
             return run_internal(repeat, args, .{
                 .compare_results = true,
             });
         }
 
         /// Use this if the function may return a different value on subsequent calls
-        pub inline fn run_not_pure(
+        pub inline fn run_and_print_not_pure(
             repeat: u32,
             args: Args,
         ) linksection(IRAM_ATTR) Error!void {
-            _ = run_internal(repeat, args, .{});
+            const results, _ = try run_internal(repeat, args, .{});
+            try results.print();
         }
 
         const Option = struct {
@@ -174,12 +204,12 @@ pub fn NewBenchmark(comptime stat_table: []const Statistic, workFn: anytype, res
             repeat: u32,
             args: Args,
             option: Option,
-        ) linksection(IRAM_ATTR) Error!Result {
+        ) linksection(IRAM_ATTR) Error!struct { Results, ReturnValue } {
             // Warm-up the Instruction cache
-            var expected_result: Result = undefined;
+            var expected_return_value: ReturnValue = undefined;
             if (true) {
                 try reset_internal(args);
-                expected_result, const cycles, const iram_busy = internal.run_once(
+                expected_return_value, const cycles, const iram_busy = internal.run_once(
                     pm_counter_cycles,
                     pm_counter_iram_busy,
                     args,
@@ -192,7 +222,9 @@ pub fn NewBenchmark(comptime stat_table: []const Statistic, workFn: anytype, res
                 }
             }
 
-            for (stat_table) |stat| {
+            var results: Results = undefined;
+
+            for (&results.r, stat_table) |*result, stat| {
                 const retry = 3 + (repeat / 16); // Should be plenty
 
                 var results_summary: BenchMarkStatResult = .init;
@@ -202,7 +234,7 @@ pub fn NewBenchmark(comptime stat_table: []const Statistic, workFn: anytype, res
                 while (done < repeat) {
                     try reset_internal(args);
 
-                    const result, const stats = run_once(
+                    const return_value, const stats = run_once(
                         stat,
                         args,
                     ) catch |err| {
@@ -222,16 +254,17 @@ pub fn NewBenchmark(comptime stat_table: []const Statistic, workFn: anytype, res
                     };
 
                     if (option.compare_results) {
-                        if (expected_result != result) return Error.InconsistentResults;
+                        if (expected_return_value != return_value) return Error.InconsistentResults;
                     }
                     results_summary.add_result(stats);
                     done += 1;
                 }
                 log.debug("Total = {}", .{results_summary.total});
 
-                try apis.print_results(stat, results_summary);
+                // try apis.print_results(stat, results_summary);
+                result.* = results_summary;
             }
-            return expected_result;
+            return .{ results, expected_return_value };
         }
 
         inline fn reset_internal(args: Args) Error!void {
@@ -249,7 +282,7 @@ pub fn NewBenchmark(comptime stat_table: []const Statistic, workFn: anytype, res
         pub noinline fn run_once(
             stat: Statistic,
             args: Args,
-        ) linksection(IRAM_ATTR) Error!struct { Result, u32 } {
+        ) linksection(IRAM_ATTR) Error!struct { ReturnValue, u32 } {
             const result, const iram_busy, const stats = internal.run_once(
                 pm_counter_iram_busy,
                 stat,
@@ -273,7 +306,7 @@ pub fn NewBenchmark(comptime stat_table: []const Statistic, workFn: anytype, res
                 stat_1: Statistic,
                 args: Args,
                 tracelevel: access.TraceLevel,
-            ) linksection(IRAM_ATTR) struct { Result, u32, u32 } {
+            ) linksection(IRAM_ATTR) struct { ReturnValue, u32, u32 } {
                 counter.start(stat_0, stat_1, tracelevel);
                 // Do not inline the call, because that could change the instruction alignment
                 const result = @call(.never_inline, workFn, args);
@@ -310,7 +343,7 @@ pub const counter = struct {
 
 const apis = struct {
     // Rewrite & improvement of `sys.xtensa_perfmon_view_cb`
-    fn print_results(stat: Statistic, result: BenchMarkStatResult) BenchmarkError!void {
+    fn print_result(stat: Statistic, result: BenchMarkStatResult) BenchmarkError!void {
         log.info(
             "min/max/avg = {d:9} /{d:9} /{d:9} , select = {d:2}, mask = 0x{x:04}",
             .{ result.min, result.max, (result.total / result.repeat), stat.infer().raw(), stat.raw() },
