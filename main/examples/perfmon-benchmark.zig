@@ -82,10 +82,10 @@ fn basic_benchmark() !void {
         const expected_result = add_up_numbers(&numbers);
 
         log.info("benchmark add_up_numbers()", .{});
-        const benched_result = try Benchmark_pure(checks, add_up_numbers).run_and_print(REPEAT, .{&numbers});
+        const return_value = try Benchmark_pure(checks, add_up_numbers).run_and_print(REPEAT, .{&numbers});
 
-        log.info("Result = {}", .{benched_result});
-        assert(expected_result == benched_result);
+        log.info("return_value = {}", .{return_value});
+        assert(expected_result == return_value);
     }
 
     // If the function modifies data that is pointed-to by its arguments,
@@ -93,10 +93,10 @@ fn basic_benchmark() !void {
     {
         const expected_result = running_total(&numbers);
         log.info("benchmark running_total(), resetting arguments between runs", .{});
-        const benched_result = try perfmon.Benchmark(checks, running_total, reset_numbers).run_and_print(REPEAT, .{&numbers});
+        const return_value = try perfmon.Benchmark(checks, running_total, reset_numbers).run_and_print(REPEAT, .{&numbers});
 
-        log.info("Result = {}", .{benched_result});
-        assert(expected_result == benched_result);
+        log.info("return_value = {}", .{return_value});
+        assert(expected_result == return_value);
         assert(std.mem.eql(i32, &numbers, &[4]i32{ 1, 3, 6, 10 }));
     }
 }
@@ -112,43 +112,49 @@ fn run_optimised_functions() !void {
 
     {
         log.info("do nothing", .{});
-        const result = try Benchmark_pure(checks, total.do_nothing).run_and_print(REPEAT, .{&numbers});
-        log.info("Result = {}", .{result});
+        const results, const return_value = try Benchmark_pure(checks, total.do_nothing).run(REPEAT, .{&numbers});
+        log.info("return_value = {}", .{return_value});
+        try results.print(REPEAT);
     }
     idf.rtos.Task.yield();
     {
         log.info("zig loop", .{});
-        const result = try Benchmark_pure(checks, total.zig_loop).run_and_print(REPEAT, .{&numbers});
-        log.info("Result = {}", .{result});
-        if (result != EXPECTED) @panic("");
+        const results, const return_value = try Benchmark_pure(checks, total.zig_loop).run(REPEAT, .{&numbers});
+        log.info("return_value = {}", .{return_value});
+        try results.print(REPEAT);
+        if (return_value != EXPECTED) @panic("");
     }
     idf.rtos.Task.yield();
     {
         log.info("asm loop (should be similar to zig loop)", .{});
-        const result = try Benchmark_pure(checks, total.basic_loop_0).run_and_print(REPEAT, .{&numbers});
-        log.info("Result = {}", .{result});
-        if (result != EXPECTED) @panic("");
+        const results, const return_value = try Benchmark_pure(checks, total.basic_loop_0).run(REPEAT, .{&numbers});
+        log.info("return_value = {}", .{return_value});
+        try results.print(REPEAT);
+        if (return_value != EXPECTED) @panic("");
     }
     idf.rtos.Task.yield();
     {
         log.info("asm loop, without the data hazard", .{});
-        const result = try Benchmark_pure(checks, total.basic_loop_1).run_and_print(REPEAT, .{&numbers});
-        log.info("Result = {}", .{result});
-        if (result != EXPECTED) @panic("");
+        const results, const return_value = try Benchmark_pure(checks, total.basic_loop_1).run(REPEAT, .{&numbers});
+        log.info("return_value = {}", .{return_value});
+        try results.print(REPEAT);
+        if (return_value != EXPECTED) @panic("");
     }
     idf.rtos.Task.yield();
     {
         log.info("zero-overhead loop", .{});
-        const result = try Benchmark_pure(checks, total.zero_overhead_loop_0).run_and_print(REPEAT, .{&numbers});
-        log.info("Result = {}", .{result});
-        if (result != EXPECTED) @panic("");
+        const results, const return_value = try Benchmark_pure(checks, total.zero_overhead_loop_0).run(REPEAT, .{&numbers});
+        log.info("return_value = {}", .{return_value});
+        try results.print(REPEAT);
+        if (return_value != EXPECTED) @panic("");
     }
     idf.rtos.Task.yield();
     {
         log.info("mis-aligned instruction at zero-overhead loop start", .{});
-        const result = try Benchmark_pure(checks, total.zero_overhead_loop_1).run_and_print(REPEAT, .{&numbers});
-        log.info("Result = {}", .{result});
-        if (result != EXPECTED) @panic("");
+        const results, const return_value = try Benchmark_pure(checks, total.zero_overhead_loop_1).run(REPEAT, .{&numbers});
+        log.info("return_value = {}", .{return_value});
+        try results.print(REPEAT);
+        if (return_value != EXPECTED) @panic("");
     }
 
     // Further optimisations require SIMD, which is only available on the ESP32-S3
@@ -158,36 +164,41 @@ fn run_optimised_functions() !void {
         idf.rtos.Task.yield();
         {
             log.info("zig loop, @Vector", .{});
-            const result = try Benchmark_pure(checks, total.zig_loop_vec).run_and_print(REPEAT, .{&numbers});
-            log.info("Result = {}", .{result});
-            if (result != EXPECTED) @panic("");
+            const results, const return_value = try Benchmark_pure(checks, total.zig_loop_vec).run(REPEAT, .{&numbers});
+            log.info("return_value = {}", .{return_value});
+            try results.print(REPEAT);
+            if (return_value != EXPECTED) @panic("");
         }
         idf.rtos.Task.yield();
         {
             log.info("vectorised zero-overhead loop", .{});
-            const result = try Benchmark_pure(checks, total.vectorised_0).run_and_print(REPEAT, .{&numbers});
-            log.info("Result = {}", .{result});
-            if (result != EXPECTED) @panic("");
+            const results, const return_value = try Benchmark_pure(checks, total.vectorised_0).run(REPEAT, .{&numbers});
+            log.info("return_value = {}", .{return_value});
+            try results.print(REPEAT);
+            if (return_value != EXPECTED) @panic("");
         }
         idf.rtos.Task.yield();
         {
             log.info("improved vector code", .{});
-            const result = try Benchmark_pure(checks, total.vectorised_1).run_and_print(REPEAT, .{&numbers});
-            log.info("Result = {}", .{result});
-            if (result != EXPECTED) @panic("");
+            const results, const return_value = try Benchmark_pure(checks, total.vectorised_1).run(REPEAT, .{&numbers});
+            log.info("return_value = {}", .{return_value});
+            try results.print(REPEAT);
+            if (return_value != EXPECTED) @panic("");
         }
         idf.rtos.Task.yield();
         {
             log.info("Use more vector registers", .{});
-            const result = try Benchmark_pure(checks, total.vectorised_2).run_and_print(REPEAT, .{&numbers});
-            log.info("Result = {}", .{result});
-            if (result != EXPECTED) @panic("");
+            const results, const return_value = try Benchmark_pure(checks, total.vectorised_2).run(REPEAT, .{&numbers});
+            log.info("return_value = {}", .{return_value});
+            try results.print(REPEAT);
+            if (return_value != EXPECTED) @panic("");
         }
         {
             log.info("Align zero-copy loop to prevent wasted cycle", .{});
-            const result = try Benchmark_pure(checks, total.vectorised_3).run_and_print(REPEAT, .{&numbers});
-            log.info("Result = {}", .{result});
-            if (result != EXPECTED) @panic("");
+            const results, const return_value = try Benchmark_pure(checks, total.vectorised_3).run(REPEAT, .{&numbers});
+            log.info("return_value = {}", .{return_value});
+            try results.print(REPEAT);
+            if (return_value != EXPECTED) @panic("");
         }
     }
 }

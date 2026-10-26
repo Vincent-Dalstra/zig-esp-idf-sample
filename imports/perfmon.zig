@@ -69,34 +69,34 @@ const BenchmarkError = error{
 };
 
 const BenchMarkStatResult = struct {
-    repeat: u32,
     min: u32,
     max: u32,
-    total: u64,
+    total: u40, // u32 value * u8 repeats
 
     const init: BenchMarkStatResult = .{
-        .repeat = 0,
         .min = std.math.maxInt(u32),
         .max = 0,
         .total = 0,
+    };
+
+    fn subtract(a: BenchMarkStatResult, b: BenchMarkStatResult) !Difference {
+        return .{
+            .min = a.min - b.min,
+            .max = a.max - b.max,
+            .total = a.total - b.total,
+        };
+    }
+    const Difference = struct {
+        min: i33,
+        max: i33,
+        total: i41,
     };
 
     fn add_result(self: *BenchMarkStatResult, val: u32) void {
         self.max = @max(self.max, val);
         self.min = @min(self.min, val);
         self.total += val;
-        self.repeat += 1;
     }
-
-    // pub fn format(
-    //     self: @This(),
-    //     writer: *std.Io.Writer,
-    // ) std.Io.Writer.Error!void {
-    //     try writer.print(
-    //         "{d:9} /{d:9} /{d:9}",
-    //         .{ self.min, self.max, (self.total / self.repeat) },
-    //     );
-    // }
 };
 
 /// Note: `function` will be executed multiple times!
@@ -148,37 +148,55 @@ pub fn NewBenchmark(comptime stat_table: []const Statistic, workFn: anytype, res
     return struct {
         const Self = @This();
 
-        const Results = struct {
+        pub const Results = struct {
             // repeat: [stat_table.len]u32,
             // min: [stat_table.len]u32,
             // max: [stat_table.len]u32,
             // total: [stat_table.len]u64,
             r: [stat_table.len]BenchMarkStatResult,
 
-            noinline fn print(
+            pub noinline fn print(
                 results: Results,
-                repeat: u32,
-            ) Error!void {
-                _ = repeat;
+                repeat: u8,
+            ) linksection(IRAM_ATTR) Error!void {
                 for (results.r, stat_table) |result, stat| {
-                    try apis.print_result(stat, result);
+                    try apis.print_result(stat, result, repeat);
                 }
+            }
+
+            pub const Difference = struct {
+                r: [stat_table.len]BenchMarkStatResult.Difference,
+
+                pub noinline fn print(
+                    differences: Difference,
+                    repeat: u8,
+                ) Error!void {
+                    for (differences.r, stat_table) |difference, stat| {
+                        try apis.print_result_difference(stat, difference, repeat);
+                    }
+                }
+            };
+
+            pub fn subtract(a: Results, b: Results) linksection(IRAM_ATTR) Difference {
+                var ret: Difference = undefined;
+                for (&ret.r, a.r, b.r) |*rr, ar, br| {
+                    rr.* = ar.subtract(br);
+                }
+                return ret;
             }
         };
 
         pub inline fn run_and_print(
-            repeat: u32,
+            repeat: u8,
             args: Args,
         ) linksection(IRAM_ATTR) Error!ReturnValue {
-            // print_results(repeat, results);
-
             const results, const return_value = try run_internal(repeat, args, .{});
             try results.print(repeat);
             return return_value;
         }
 
         pub inline fn run(
-            repeat: u32,
+            repeat: u8,
             args: Args,
         ) linksection(IRAM_ATTR) Error!struct { Results, ReturnValue } {
             return run_internal(repeat, args, .{
@@ -188,7 +206,7 @@ pub fn NewBenchmark(comptime stat_table: []const Statistic, workFn: anytype, res
 
         /// Use this if the function may return a different value on subsequent calls
         pub inline fn run_and_print_not_pure(
-            repeat: u32,
+            repeat: u8,
             args: Args,
         ) linksection(IRAM_ATTR) Error!void {
             const results, _ = try run_internal(repeat, args, .{});
@@ -201,7 +219,7 @@ pub fn NewBenchmark(comptime stat_table: []const Statistic, workFn: anytype, res
         };
 
         noinline fn run_internal(
-            repeat: u32,
+            repeat: u8,
             args: Args,
             option: Option,
         ) linksection(IRAM_ATTR) Error!struct { Results, ReturnValue } {
@@ -261,7 +279,6 @@ pub fn NewBenchmark(comptime stat_table: []const Statistic, workFn: anytype, res
                 }
                 log.debug("Total = {}", .{results_summary.total});
 
-                // try apis.print_results(stat, results_summary);
                 result.* = results_summary;
             }
             return .{ results, expected_return_value };
@@ -343,10 +360,32 @@ pub const counter = struct {
 
 const apis = struct {
     // Rewrite & improvement of `sys.xtensa_perfmon_view_cb`
-    fn print_result(stat: Statistic, result: BenchMarkStatResult) BenchmarkError!void {
+    fn print_result(stat: Statistic, result: BenchMarkStatResult, repeat: u8) BenchmarkError!void {
         log.info(
             "min/max/avg = {d:9} /{d:9} /{d:9} , select = {d:2}, mask = 0x{x:04}",
-            .{ result.min, result.max, (result.total / result.repeat), stat.infer().raw(), stat.raw() },
+            .{ result.min, result.max, (result.total / repeat), stat.infer().raw(), stat.raw() },
+        );
+        log.info(
+            "    {s}.",
+            .{try get_select_description(stat)},
+        );
+
+        const backing, const len = try get_mask_descriptions(stat);
+        const mask_descriptions = backing[0..len];
+
+        for (mask_descriptions) |desc| {
+            log.info(
+                "        {s}",
+                .{desc},
+            );
+        }
+    }
+
+    // Exactly the same, but can take 'difference' (allows negative)
+    fn print_result_difference(stat: Statistic, result: BenchMarkStatResult.Difference, repeat: u8) BenchmarkError!void {
+        log.info(
+            "min/max/avg = {d:9} /{d:9} /{d:9} , select = {d:2}, mask = 0x{x:04}",
+            .{ result.min, result.max, (result.total / repeat), stat.infer().raw(), stat.raw() },
         );
         log.info(
             "    {s}.",
