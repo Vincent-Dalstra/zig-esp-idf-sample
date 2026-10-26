@@ -99,55 +99,10 @@ const BenchMarkStatResult = struct {
     }
 };
 
-/// Note: `function` will be executed multiple times!
-/// This is necessary to collect each of the different statistics.
-///
-/// It is recommended that `function` be a 'pure function', i.e.
-/// - No side effects.
-/// - Result depends only on arguments.
-///
-/// Otherwise, you should call `NewBenchMark` directly, which lets you provide
-/// a function to `reset` things between each call.
-pub fn BenchmarkPure(comptime stat_table: []const Statistic, function: anytype) type {
-    return Benchmark(stat_table, function, null);
-}
-pub const Benchmark = NewBenchmark;
-
-pub fn NewBenchmark(comptime stat_table: []const Statistic, workFn: anytype, resetFn: anytype) type {
+pub fn benchmark(comptime stat_table: []const Statistic) type {
     const Error = BenchmarkError;
 
-    const info = @typeInfo(@TypeOf(workFn));
-    if (info != .@"fn")
-        @compileError("Benchmark expects a function!");
-
-    const workFn_info = info.@"fn";
-    if (workFn_info.attrs.varargs)
-        @compileError("Cannot create ArgsTuple for variadic function");
-
-    const ReturnValue = workFn_info.return_type.?;
-    const Args = std.meta.ArgsTuple(@TypeOf(workFn));
-
-    const resetFn_info = @typeInfo(@TypeOf(resetFn));
-    const ResetResult = if (resetFn_info == .null) void else blk: {
-        if (info != .@"fn")
-            @compileError("Reset must be `null` or a function!");
-        const resetFn_info_function = resetFn_info.@"fn";
-        if (resetFn_info_function.attrs.varargs)
-            @compileError("Reset fn must not be variadic");
-        const ResetArgs = std.meta.ArgsTuple(@TypeOf(workFn));
-        if (Args != ResetArgs) {
-            @compileError("Reset function must take the same arguments as the benchmarked function");
-        }
-
-        if (resetFn_info_function.return_type.? != void and resetFn_info_function.return_type.? != ?void) {
-            @compileError("Reset function must have type `void` or `?void`");
-        }
-        break :blk resetFn_info_function.return_type.?;
-    };
-
     return struct {
-        const Self = @This();
-
         pub const Results = struct {
             // repeat: [stat_table.len]u32,
             // min: [stat_table.len]u32,
@@ -186,151 +141,199 @@ pub fn NewBenchmark(comptime stat_table: []const Statistic, workFn: anytype, res
             }
         };
 
-        pub inline fn run_and_print(
-            repeat: u8,
-            args: Args,
-        ) linksection(IRAM_ATTR) Error!ReturnValue {
-            const results, const return_value = try run_internal(repeat, args, .{});
-            try results.print(repeat);
-            return return_value;
+        /// Note: `function` will be executed multiple times!
+        /// This is necessary to collect each of the different statistics.
+        ///
+        /// It is recommended that `function` be a 'pure function', i.e.
+        /// - No side effects.
+        /// - Result depends only on arguments.
+        ///
+        /// Otherwise, you should call `NewBenchMark` directly, which lets you provide
+        /// a function to `reset` things between each call.
+        pub fn FnPure(function: anytype) type {
+            return Fn(function, null);
         }
 
-        pub inline fn run(
-            repeat: u8,
-            args: Args,
-        ) linksection(IRAM_ATTR) Error!struct { Results, ReturnValue } {
-            return run_internal(repeat, args, .{
-                .compare_results = true,
-            });
-        }
+        pub fn Fn(workFn: anytype, resetFn: anytype) type {
+            const info = @typeInfo(@TypeOf(workFn));
+            if (info != .@"fn")
+                @compileError("Benchmark expects a function!");
 
-        /// Use this if the function may return a different value on subsequent calls
-        pub inline fn run_and_print_not_pure(
-            repeat: u8,
-            args: Args,
-        ) linksection(IRAM_ATTR) Error!void {
-            const results, _ = try run_internal(repeat, args, .{});
-            try results.print();
-        }
+            const workFn_info = info.@"fn";
+            if (workFn_info.attrs.varargs)
+                @compileError("Cannot create ArgsTuple for variadic function");
 
-        const Option = struct {
-            compare_results: bool = false,
-            yield_between_runs: bool = false,
-        };
+            const ReturnValue = workFn_info.return_type.?;
+            const Args = std.meta.ArgsTuple(@TypeOf(workFn));
 
-        noinline fn run_internal(
-            repeat: u8,
-            args: Args,
-            option: Option,
-        ) linksection(IRAM_ATTR) Error!struct { Results, ReturnValue } {
-            // Warm-up the Instruction cache
-            var expected_return_value: ReturnValue = undefined;
-            if (true) {
-                try reset_internal(args);
-                expected_return_value, const cycles, const iram_busy = internal.run_once(
-                    pm_counter_cycles,
-                    pm_counter_iram_busy,
-                    args,
-                    .all,
-                );
-                _ = cycles;
-
-                if (iram_busy > 0) {
-                    log.debug("WARMUP: Instruction RAM/ROM busy stall = {}", .{iram_busy});
+            const resetFn_info = @typeInfo(@TypeOf(resetFn));
+            const ResetResult = if (resetFn_info == .null) void else blk: {
+                if (info != .@"fn")
+                    @compileError("Reset must be `null` or a function!");
+                const resetFn_info_function = resetFn_info.@"fn";
+                if (resetFn_info_function.attrs.varargs)
+                    @compileError("Reset fn must not be variadic");
+                const ResetArgs = std.meta.ArgsTuple(@TypeOf(workFn));
+                if (Args != ResetArgs) {
+                    @compileError("Reset function must take the same arguments as the benchmarked function");
                 }
-            }
 
-            var results: Results = undefined;
+                if (resetFn_info_function.return_type.? != void and resetFn_info_function.return_type.? != ?void) {
+                    @compileError("Reset function must have type `void` or `?void`");
+                }
+                break :blk resetFn_info_function.return_type.?;
+            };
 
-            for (&results.r, stat_table) |*result, stat| {
-                const retry = 3 + (repeat / 16); // Should be plenty
+            return struct {
+                const Self = @This();
 
-                var results_summary: BenchMarkStatResult = .init;
+                pub inline fn run_and_print(
+                    repeat: u8,
+                    args: Args,
+                ) linksection(IRAM_ATTR) Error!ReturnValue {
+                    const results, const return_value = try run_internal(repeat, args, .{});
+                    try results.print(repeat);
+                    return return_value;
+                }
 
-                var invalid: u32 = 0;
-                var done: u32 = 0;
-                while (done < repeat) {
-                    try reset_internal(args);
+                pub inline fn run(
+                    repeat: u8,
+                    args: Args,
+                ) linksection(IRAM_ATTR) Error!struct { Results, ReturnValue } {
+                    return run_internal(repeat, args, .{
+                        .compare_results = true,
+                    });
+                }
 
-                    const return_value, const stats = run_once(
+                /// Use this if the function may return a different value on subsequent calls
+                pub inline fn run_and_print_not_pure(
+                    repeat: u8,
+                    args: Args,
+                ) linksection(IRAM_ATTR) Error!void {
+                    const results, _ = try run_internal(repeat, args, .{});
+                    try results.print();
+                }
+
+                const Option = struct {
+                    compare_results: bool = false,
+                    yield_between_runs: bool = false,
+                };
+
+                noinline fn run_internal(
+                    repeat: u8,
+                    args: Args,
+                    option: Option,
+                ) linksection(IRAM_ATTR) Error!struct { Results, ReturnValue } {
+                    // Warm-up the Instruction cache
+                    var expected_return_value: ReturnValue = undefined;
+                    if (true) {
+                        try reset_internal(args);
+                        expected_return_value, const cycles, const iram_busy = internal.run_once(
+                            pm_counter_cycles,
+                            pm_counter_iram_busy,
+                            args,
+                            .all,
+                        );
+                        _ = cycles;
+
+                        if (iram_busy > 0) {
+                            log.debug("WARMUP: Instruction RAM/ROM busy stall = {}", .{iram_busy});
+                        }
+                    }
+
+                    var results: Results = undefined;
+
+                    for (&results.r, stat_table) |*result, stat| {
+                        const retry = 3 + (repeat / 16); // Should be plenty
+
+                        var results_summary: BenchMarkStatResult = .init;
+
+                        var invalid: u32 = 0;
+                        var done: u32 = 0;
+                        while (done < repeat) {
+                            try reset_internal(args);
+
+                            const return_value, const stats = run_once(
+                                stat,
+                                args,
+                            ) catch |err| {
+                                invalid += 1;
+
+                                // Inline the log code so it gets forced into IRAM
+                                // Otherwise, it will clobber a large chunk of the IRAM cache
+                                @call(.always_inline, log.warn, .{
+                                    "Done = {}/{}, Invalid = {}/{}: {t}",
+                                    .{ done, repeat, invalid, retry, err },
+                                });
+
+                                if (invalid > retry) {
+                                    return Error.IramBusyStall;
+                                }
+                                continue;
+                            };
+
+                            if (option.compare_results) {
+                                if (expected_return_value != return_value) return Error.InconsistentResults;
+                            }
+                            results_summary.add_result(stats);
+                            done += 1;
+                        }
+                        log.debug("Total = {}", .{results_summary.total});
+
+                        result.* = results_summary;
+                    }
+                    return .{ results, expected_return_value };
+                }
+
+                inline fn reset_internal(args: Args) Error!void {
+                    if (resetFn_info == .null) {
+                        return; // no reset required
+                    } else {
+                        switch (ResetResult) {
+                            void => @call(.auto, resetFn, args),
+                            ?void => @call(.auto, resetFn, args) orelse return Error.ResetFunctionReturnedNull,
+                            else => unreachable,
+                        }
+                    }
+                }
+
+                pub noinline fn run_once(
+                    stat: Statistic,
+                    args: Args,
+                ) linksection(IRAM_ATTR) Error!struct { ReturnValue, u32 } {
+                    const result, const iram_busy, const stats = internal.run_once(
+                        pm_counter_iram_busy,
                         stat,
                         args,
-                    ) catch |err| {
-                        invalid += 1;
+                        .all,
+                    );
 
-                        // Inline the log code so it gets forced into IRAM
-                        // Otherwise, it will clobber a large chunk of the IRAM cache
-                        @call(.always_inline, log.warn, .{
-                            "Done = {}/{}, Invalid = {}/{}: {t}",
-                            .{ done, repeat, invalid, retry, err },
-                        });
-
-                        if (invalid > retry) {
-                            return Error.IramBusyStall;
-                        }
-                        continue;
-                    };
-
-                    if (option.compare_results) {
-                        if (expected_return_value != return_value) return Error.InconsistentResults;
+                    if (iram_busy > 0) {
+                        return Error.IramBusyStall;
                     }
-                    results_summary.add_result(stats);
-                    done += 1;
+
+                    return .{ result, stats };
                 }
-                log.debug("Total = {}", .{results_summary.total});
 
-                result.* = results_summary;
-            }
-            return .{ results, expected_return_value };
+                const pm_counter_cycles: Statistic = .{ .XTPERF_CNT_CYCLES = .all };
+                const pm_counter_iram_busy: Statistic = .{ .XTPERF_CNT_I_STALL = .{ .BUSY = true } };
+
+                const internal = struct {
+                    noinline fn run_once(
+                        stat_0: Statistic,
+                        stat_1: Statistic,
+                        args: Args,
+                        tracelevel: access.TraceLevel,
+                    ) linksection(IRAM_ATTR) struct { ReturnValue, u32, u32 } {
+                        counter.start(stat_0, stat_1, tracelevel);
+                        // Do not inline the call, because that could change the instruction alignment
+                        const result = @call(.never_inline, workFn, args);
+                        const p0, const p1 = counter.stop();
+                        return .{ result, p0, p1 };
+                    }
+                };
+            };
         }
-
-        inline fn reset_internal(args: Args) Error!void {
-            if (resetFn_info == .null) {
-                return; // no reset required
-            } else {
-                switch (ResetResult) {
-                    void => @call(.auto, resetFn, args),
-                    ?void => @call(.auto, resetFn, args) orelse return Error.ResetFunctionReturnedNull,
-                    else => unreachable,
-                }
-            }
-        }
-
-        pub noinline fn run_once(
-            stat: Statistic,
-            args: Args,
-        ) linksection(IRAM_ATTR) Error!struct { ReturnValue, u32 } {
-            const result, const iram_busy, const stats = internal.run_once(
-                pm_counter_iram_busy,
-                stat,
-                args,
-                .all,
-            );
-
-            if (iram_busy > 0) {
-                return Error.IramBusyStall;
-            }
-
-            return .{ result, stats };
-        }
-
-        const pm_counter_cycles: Statistic = .{ .XTPERF_CNT_CYCLES = .all };
-        const pm_counter_iram_busy: Statistic = .{ .XTPERF_CNT_I_STALL = .{ .BUSY = true } };
-
-        const internal = struct {
-            noinline fn run_once(
-                stat_0: Statistic,
-                stat_1: Statistic,
-                args: Args,
-                tracelevel: access.TraceLevel,
-            ) linksection(IRAM_ATTR) struct { ReturnValue, u32, u32 } {
-                counter.start(stat_0, stat_1, tracelevel);
-                // Do not inline the call, because that could change the instruction alignment
-                const result = @call(.never_inline, workFn, args);
-                const p0, const p1 = counter.stop();
-                return .{ result, p0, p1 };
-            }
-        };
     };
 }
 

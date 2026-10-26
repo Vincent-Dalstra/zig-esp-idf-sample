@@ -28,10 +28,9 @@ const assert = std.debug.assert;
 
 const log = std.log.scoped(.perfmon_example);
 
-const Benchmark_pure = perfmon.BenchmarkPure;
-const Benchmark = perfmon.Benchmark;
-
 const checks = &perfmon.perfmon_check_table.new_simple;
+
+const benchmark = perfmon.benchmark(checks);
 
 const REPEAT = 10;
 
@@ -82,7 +81,7 @@ fn basic_benchmark() !void {
         const expected_result = add_up_numbers(&numbers);
 
         log.info("benchmark add_up_numbers()", .{});
-        const return_value = try Benchmark_pure(checks, add_up_numbers).run_and_print(REPEAT, .{&numbers});
+        const return_value = try benchmark.FnPure(add_up_numbers).run_and_print(REPEAT, .{&numbers});
 
         log.info("return_value = {}", .{return_value});
         assert(expected_result == return_value);
@@ -93,7 +92,7 @@ fn basic_benchmark() !void {
     {
         const expected_result = running_total(&numbers);
         log.info("benchmark running_total(), resetting arguments between runs", .{});
-        const return_value = try perfmon.Benchmark(checks, running_total, reset_numbers).run_and_print(REPEAT, .{&numbers});
+        const return_value = try benchmark.Fn(running_total, reset_numbers).run_and_print(REPEAT, .{&numbers});
 
         log.info("return_value = {}", .{return_value});
         assert(expected_result == return_value);
@@ -112,14 +111,14 @@ fn run_optimised_functions() !void {
 
     {
         log.info("do nothing", .{});
-        const results, const return_value = try Benchmark_pure(checks, total.do_nothing).run(REPEAT, .{&numbers});
+        const results, const return_value = try benchmark.FnPure(total.do_nothing).run(REPEAT, .{&numbers});
         log.info("return_value = {}", .{return_value});
         try results.print(REPEAT);
     }
     idf.rtos.Task.yield();
     {
         log.info("zig loop", .{});
-        const results, const return_value = try Benchmark_pure(checks, total.zig_loop).run(REPEAT, .{&numbers});
+        const results, const return_value = try benchmark.FnPure(total.zig_loop).run(REPEAT, .{&numbers});
         log.info("return_value = {}", .{return_value});
         try results.print(REPEAT);
         if (return_value != EXPECTED) @panic("");
@@ -127,7 +126,7 @@ fn run_optimised_functions() !void {
     idf.rtos.Task.yield();
     {
         log.info("asm loop (should be similar to zig loop)", .{});
-        const results, const return_value = try Benchmark_pure(checks, total.basic_loop_0).run(REPEAT, .{&numbers});
+        const results, const return_value = try benchmark.FnPure(total.basic_loop_0).run(REPEAT, .{&numbers});
         log.info("return_value = {}", .{return_value});
         try results.print(REPEAT);
         if (return_value != EXPECTED) @panic("");
@@ -135,7 +134,7 @@ fn run_optimised_functions() !void {
     idf.rtos.Task.yield();
     {
         log.info("asm loop, without the data hazard", .{});
-        const results, const return_value = try Benchmark_pure(checks, total.basic_loop_1).run(REPEAT, .{&numbers});
+        const results, const return_value = try benchmark.FnPure(total.basic_loop_1).run(REPEAT, .{&numbers});
         log.info("return_value = {}", .{return_value});
         try results.print(REPEAT);
         if (return_value != EXPECTED) @panic("");
@@ -143,7 +142,7 @@ fn run_optimised_functions() !void {
     idf.rtos.Task.yield();
     {
         log.info("zero-overhead loop", .{});
-        const results, const return_value = try Benchmark_pure(checks, total.zero_overhead_loop_0).run(REPEAT, .{&numbers});
+        const results, const return_value = try benchmark.FnPure(total.zero_overhead_loop_0).run(REPEAT, .{&numbers});
         log.info("return_value = {}", .{return_value});
         try results.print(REPEAT);
         if (return_value != EXPECTED) @panic("");
@@ -151,7 +150,7 @@ fn run_optimised_functions() !void {
     idf.rtos.Task.yield();
     {
         log.info("mis-aligned instruction at zero-overhead loop start", .{});
-        const results, const return_value = try Benchmark_pure(checks, total.zero_overhead_loop_1).run(REPEAT, .{&numbers});
+        const results, const return_value = try benchmark.FnPure(total.zero_overhead_loop_1).run(REPEAT, .{&numbers});
         log.info("return_value = {}", .{return_value});
         try results.print(REPEAT);
         if (return_value != EXPECTED) @panic("");
@@ -164,7 +163,7 @@ fn run_optimised_functions() !void {
         idf.rtos.Task.yield();
         {
             log.info("zig loop, @Vector", .{});
-            const results, const return_value = try Benchmark_pure(checks, total.zig_loop_vec).run(REPEAT, .{&numbers});
+            const results, const return_value = try benchmark.FnPure(total.zig_loop_vec).run(REPEAT, .{&numbers});
             log.info("return_value = {}", .{return_value});
             try results.print(REPEAT);
             if (return_value != EXPECTED) @panic("");
@@ -172,7 +171,7 @@ fn run_optimised_functions() !void {
         idf.rtos.Task.yield();
         {
             log.info("vectorised zero-overhead loop", .{});
-            const results, const return_value = try Benchmark_pure(checks, total.vectorised_0).run(REPEAT, .{&numbers});
+            const results, const return_value = try benchmark.FnPure(total.vectorised_0).run(REPEAT, .{&numbers});
             log.info("return_value = {}", .{return_value});
             try results.print(REPEAT);
             if (return_value != EXPECTED) @panic("");
@@ -180,7 +179,7 @@ fn run_optimised_functions() !void {
         idf.rtos.Task.yield();
         {
             log.info("improved vector code", .{});
-            const results, const return_value = try Benchmark_pure(checks, total.vectorised_1).run(REPEAT, .{&numbers});
+            const results, const return_value = try benchmark.FnPure(total.vectorised_1).run(REPEAT, .{&numbers});
             log.info("return_value = {}", .{return_value});
             try results.print(REPEAT);
             if (return_value != EXPECTED) @panic("");
@@ -188,14 +187,14 @@ fn run_optimised_functions() !void {
         idf.rtos.Task.yield();
         {
             log.info("Use more vector registers", .{});
-            const results, const return_value = try Benchmark_pure(checks, total.vectorised_2).run(REPEAT, .{&numbers});
+            const results, const return_value = try benchmark.FnPure(total.vectorised_2).run(REPEAT, .{&numbers});
             log.info("return_value = {}", .{return_value});
             try results.print(REPEAT);
             if (return_value != EXPECTED) @panic("");
         }
         {
             log.info("Align zero-copy loop to prevent wasted cycle", .{});
-            const results, const return_value = try Benchmark_pure(checks, total.vectorised_3).run(REPEAT, .{&numbers});
+            const results, const return_value = try benchmark.FnPure(total.vectorised_3).run(REPEAT, .{&numbers});
             log.info("return_value = {}", .{return_value});
             try results.print(REPEAT);
             if (return_value != EXPECTED) @panic("");
