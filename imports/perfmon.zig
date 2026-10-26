@@ -79,7 +79,7 @@ const BenchMarkStatResult = struct {
         .total = 0,
     };
 
-    fn subtract(a: BenchMarkStatResult, b: BenchMarkStatResult) !Difference {
+    fn subtract(a: BenchMarkStatResult, b: BenchMarkStatResult) Difference {
         return .{
             .min = a.min - b.min,
             .max = a.max - b.max,
@@ -388,7 +388,7 @@ const apis = struct {
     fn print_result_difference(stat: Statistic, result: BenchMarkStatResult.Difference, repeat: u8) BenchmarkError!void {
         log.info(
             "min/max/avg = {d:9} /{d:9} /{d:9} , select = {d:2}, mask = 0x{x:04}",
-            .{ result.min, result.max, (result.total / repeat), stat.infer().raw(), stat.raw() },
+            .{ result.min, result.max, @divTrunc(result.total, repeat), stat.infer().raw(), stat.raw() },
         );
         log.info(
             "    {s}.",

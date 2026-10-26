@@ -109,51 +109,60 @@ fn run_optimised_functions() !void {
         n.* = @intCast(i);
     }
 
+    var prev_results: benchmark.Results = undefined;
+
     {
         log.info("do nothing", .{});
         const results, const return_value = try benchmark.FnPure(total.do_nothing).run(REPEAT, .{&numbers});
         log.info("return_value = {}", .{return_value});
         try results.print(REPEAT);
+        try results.subtract(prev_results).print(REPEAT);
+        prev_results = results;
     }
     idf.rtos.Task.yield();
     {
         log.info("zig loop", .{});
         const results, const return_value = try benchmark.FnPure(total.zig_loop).run(REPEAT, .{&numbers});
+        if (return_value != EXPECTED) @panic("");
         log.info("return_value = {}", .{return_value});
         try results.print(REPEAT);
-        if (return_value != EXPECTED) @panic("");
+        prev_results = results;
     }
     idf.rtos.Task.yield();
     {
         log.info("asm loop (should be similar to zig loop)", .{});
         const results, const return_value = try benchmark.FnPure(total.basic_loop_0).run(REPEAT, .{&numbers});
+        if (return_value != EXPECTED) @panic("");
         log.info("return_value = {}", .{return_value});
         try results.print(REPEAT);
-        if (return_value != EXPECTED) @panic("");
+        prev_results = results;
     }
     idf.rtos.Task.yield();
     {
         log.info("asm loop, without the data hazard", .{});
         const results, const return_value = try benchmark.FnPure(total.basic_loop_1).run(REPEAT, .{&numbers});
+        if (return_value != EXPECTED) @panic("");
         log.info("return_value = {}", .{return_value});
         try results.print(REPEAT);
-        if (return_value != EXPECTED) @panic("");
+        prev_results = results;
     }
     idf.rtos.Task.yield();
     {
         log.info("zero-overhead loop", .{});
         const results, const return_value = try benchmark.FnPure(total.zero_overhead_loop_0).run(REPEAT, .{&numbers});
+        if (return_value != EXPECTED) @panic("");
         log.info("return_value = {}", .{return_value});
         try results.print(REPEAT);
-        if (return_value != EXPECTED) @panic("");
+        prev_results = results;
     }
     idf.rtos.Task.yield();
     {
         log.info("mis-aligned instruction at zero-overhead loop start", .{});
         const results, const return_value = try benchmark.FnPure(total.zero_overhead_loop_1).run(REPEAT, .{&numbers});
+        if (return_value != EXPECTED) @panic("");
         log.info("return_value = {}", .{return_value});
         try results.print(REPEAT);
-        if (return_value != EXPECTED) @panic("");
+        prev_results = results;
     }
 
     // Further optimisations require SIMD, which is only available on the ESP32-S3
