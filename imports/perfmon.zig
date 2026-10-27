@@ -68,18 +68,18 @@ const BenchmarkError = error{
     ResetFunctionReturnedNull,
 };
 
-const BenchMarkStatResult = struct {
+const MultipleRunResult = struct {
     min: u32,
     max: u32,
     total: u40, // u32 value * u8 repeats
 
-    const init: BenchMarkStatResult = .{
+    const init: MultipleRunResult = .{
         .min = std.math.maxInt(u32),
         .max = 0,
         .total = 0,
     };
 
-    fn subtract(a: BenchMarkStatResult, b: BenchMarkStatResult) Difference {
+    fn subtract(a: MultipleRunResult, b: MultipleRunResult) Difference {
         return .{
             .min = @as(i33, a.min) - @as(i33, b.min),
             .max = @as(i33, a.max) - @as(i33, b.max),
@@ -92,7 +92,7 @@ const BenchMarkStatResult = struct {
         total: i41,
     };
 
-    fn add_result(self: *BenchMarkStatResult, val: u32) void {
+    fn add_result(self: *MultipleRunResult, val: u32) void {
         self.max = @max(self.max, val);
         self.min = @min(self.min, val);
         self.total += val;
@@ -103,16 +103,16 @@ pub fn benchmark(comptime stat_table: []const Statistic) type {
     const Error = BenchmarkError;
 
     return struct {
-        pub const Results = struct {
+        pub const MultipleRunResults = struct {
             // repeat: [stat_table.len]u32,
             // min: [stat_table.len]u32,
             // max: [stat_table.len]u32,
             // total: [stat_table.len]u64,
-            r: [stat_table.len]BenchMarkStatResult,
+            r: [stat_table.len]MultipleRunResult,
             repeat: u8,
 
             pub fn format(
-                self: Results,
+                self: MultipleRunResults,
                 w: *std.Io.Writer,
             ) std.Io.Writer.Error!void {
                 for (self.r, stat_table) |result, stat| {
@@ -121,7 +121,7 @@ pub fn benchmark(comptime stat_table: []const Statistic) type {
             }
 
             pub const Difference = struct {
-                r: [stat_table.len]BenchMarkStatResult.Difference,
+                r: [stat_table.len]MultipleRunResult.Difference,
                 repeat: u8,
 
                 pub fn format(
@@ -134,7 +134,7 @@ pub fn benchmark(comptime stat_table: []const Statistic) type {
                 }
             };
 
-            pub fn subtract(a: Results, b: Results) linksection(IRAM_ATTR) Difference {
+            pub fn subtract(a: MultipleRunResults, b: MultipleRunResults) linksection(IRAM_ATTR) Difference {
                 assert(a.repeat == b.repeat);
                 var ret: Difference = .{
                     .r = undefined,
@@ -156,11 +156,33 @@ pub fn benchmark(comptime stat_table: []const Statistic) type {
         ///
         /// Otherwise, you should call `NewBenchMark` directly, which lets you provide
         /// a function to `reset` things between each call.
+        /// A pure function
         pub fn FnPure(function: anytype) type {
-            return Fn(function, null);
+            return FnReset(function, null);
         }
 
-        pub fn Fn(workFn: anytype, resetFn: anytype) type {
+        /// A function that depends only on its input data, but mutates said data
+        /// It's pure IF you provide a `resetFn` that sets the input data to a
+        /// consistent value before each run.
+        pub fn FnReset(function: anytype, resetFn: anytype) type {
+            return Fn(function, resetFn, .{
+                .consistent_return_value = true,
+                .consistent_results = true,
+            });
+        }
+
+        const Option = struct {
+            consistent_return_value: bool, // Compare the return value of each run and ensure they are the same
+            consistent_results: bool = false, // Currently not uses
+
+            yield_between_runs: bool = false,
+        };
+
+        pub fn Fn(
+            workFn: anytype,
+            resetFn: anytype, // optional
+            option: Option,
+        ) type {
             const info = @typeInfo(@TypeOf(workFn));
             if (info != .@"fn")
                 @compileError("Benchmark expects a function!");
@@ -196,22 +218,14 @@ pub fn benchmark(comptime stat_table: []const Statistic) type {
                 pub inline fn run(
                     repeat: u8,
                     args: Args,
-                ) linksection(IRAM_ATTR) Error!struct { Results, ReturnValue } {
-                    return run_internal(repeat, args, .{
-                        .compare_results = true,
-                    });
+                ) linksection(IRAM_ATTR) Error!struct { MultipleRunResults, ReturnValue } {
+                    return run_internal_multiple(repeat, args);
                 }
 
-                const Option = struct {
-                    compare_results: bool = false,
-                    yield_between_runs: bool = false,
-                };
-
-                noinline fn run_internal(
+                noinline fn run_internal_multiple(
                     repeat: u8,
                     args: Args,
-                    option: Option,
-                ) linksection(IRAM_ATTR) Error!struct { Results, ReturnValue } {
+                ) linksection(IRAM_ATTR) Error!struct { MultipleRunResults, ReturnValue } {
                     // Warm-up the Instruction cache
                     var expected_return_value: ReturnValue = undefined;
                     if (true) {
@@ -229,7 +243,7 @@ pub fn benchmark(comptime stat_table: []const Statistic) type {
                         }
                     }
 
-                    var results: Results = .{
+                    var results: MultipleRunResults = .{
                         .r = undefined,
                         .repeat = repeat,
                     };
@@ -237,7 +251,7 @@ pub fn benchmark(comptime stat_table: []const Statistic) type {
                     for (&results.r, stat_table) |*result, stat| {
                         const retry = 3 + (repeat / 16); // Should be plenty
 
-                        var results_summary: BenchMarkStatResult = .init;
+                        var results_summary: MultipleRunResult = .init;
 
                         var invalid: u32 = 0;
                         var done: u32 = 0;
@@ -263,7 +277,7 @@ pub fn benchmark(comptime stat_table: []const Statistic) type {
                                 continue;
                             };
 
-                            if (option.compare_results) {
+                            if (option.consistent_return_value) {
                                 if (expected_return_value != return_value) return Error.InconsistentResults;
                             }
                             results_summary.add_result(stats);
@@ -356,7 +370,7 @@ const apis = struct {
     const BenchMarkOrWriterError = BenchmarkError || std.Io.Writer.Error;
 
     // Rewrite & improvement of `sys.xtensa_perfmon_view_cb`
-    fn print_result(w: *std.Io.Writer, stat: Statistic, result: BenchMarkStatResult, repeat: u8) std.Io.Writer.Error!void {
+    fn print_result(w: *std.Io.Writer, stat: Statistic, result: MultipleRunResult, repeat: u8) std.Io.Writer.Error!void {
         try w.print(
             "min/max/avg = {d:9} /{d:9} /{d:9} , select = {d:2}, mask = 0x{x:04}\n",
             .{ result.min, result.max, (result.total / repeat), stat.infer().raw(), stat.raw() },
@@ -378,7 +392,7 @@ const apis = struct {
     }
 
     // Exactly the same, but can take 'difference' (allows negative)
-    fn print_result_difference(w: *std.Io.Writer, stat: Statistic, result: BenchMarkStatResult.Difference, repeat: u8) std.Io.Writer.Error!void {
+    fn print_result_difference(w: *std.Io.Writer, stat: Statistic, result: MultipleRunResult.Difference, repeat: u8) std.Io.Writer.Error!void {
         try w.print(
             "min/max/avg = {d:9} /{d:9} /{d:9} , select = {d:2}, mask = 0x{x:04}\n",
             .{ result.min, result.max, @divTrunc(result.total, repeat), stat.infer().raw(), stat.raw() },
@@ -442,7 +456,10 @@ const access = struct {
     const TraceLevel = PmCtrl_Register.TraceLevel;
 
     const Id = std.math.IntFittingRange(0, (sys.ERI_PERFMON_MAX - 1));
+
+    // TODO: Decide on name
     const RegWidth = u32;
+    const Counter = RegWidth;
 
     /// Configure one of the performance monitors and reset its counter
     fn xtensa_perfmon_init(id: Id, stat: Statistic, traceLevel: TraceLevel) linksection(IRAM_ATTR) void {

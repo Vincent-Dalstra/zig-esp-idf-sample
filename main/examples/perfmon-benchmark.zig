@@ -93,7 +93,7 @@ fn basic_benchmark() !void {
     {
         const expected_result = running_total(&numbers);
         log.info("benchmark running_total(), resetting arguments between runs", .{});
-        const results, const return_value = try benchmark.Fn(running_total, reset_numbers).run(REPEAT, .{&numbers});
+        const results, const return_value = try benchmark.FnReset(running_total, reset_numbers).run(REPEAT, .{&numbers});
         log.info("return_value = {}", .{return_value});
         log.info("{f}", .{results});
 
@@ -113,7 +113,7 @@ fn run_optimised_functions() !void {
         n.* = @intCast(i);
     }
 
-    var prev_results: benchmark.Results = undefined;
+    var prev_results: benchmark.MultipleRunResults = undefined;
 
     {
         log.info("do nothing", .{});
