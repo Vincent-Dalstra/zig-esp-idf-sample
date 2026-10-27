@@ -81,9 +81,9 @@ const BenchMarkStatResult = struct {
 
     fn subtract(a: BenchMarkStatResult, b: BenchMarkStatResult) Difference {
         return .{
-            .min = a.min - b.min,
-            .max = a.max - b.max,
-            .total = a.total - b.total,
+            .min = @as(i33, a.min) - @as(i33, b.min),
+            .max = @as(i33, a.max) - @as(i33, b.max),
+            .total = @as(i41, a.total) - @as(i41, b.total),
         };
     }
     const Difference = struct {
@@ -109,31 +109,37 @@ pub fn benchmark(comptime stat_table: []const Statistic) type {
             // max: [stat_table.len]u32,
             // total: [stat_table.len]u64,
             r: [stat_table.len]BenchMarkStatResult,
+            repeat: u8,
 
-            pub noinline fn print(
-                results: Results,
-                repeat: u8,
-            ) linksection(IRAM_ATTR) Error!void {
-                for (results.r, stat_table) |result, stat| {
-                    try apis.print_result(stat, result, repeat);
+            pub fn format(
+                self: Results,
+                w: *std.Io.Writer,
+            ) std.Io.Writer.Error!void {
+                for (self.r, stat_table) |result, stat| {
+                    try apis.print_result(w, stat, result, self.repeat);
                 }
             }
 
             pub const Difference = struct {
                 r: [stat_table.len]BenchMarkStatResult.Difference,
+                repeat: u8,
 
-                pub noinline fn print(
-                    differences: Difference,
-                    repeat: u8,
-                ) Error!void {
-                    for (differences.r, stat_table) |difference, stat| {
-                        try apis.print_result_difference(stat, difference, repeat);
+                pub fn format(
+                    self: Difference,
+                    w: *std.Io.Writer,
+                ) std.Io.Writer.Error!void {
+                    for (self.r, stat_table) |difference, stat| {
+                        try apis.print_result_difference(w, stat, difference, self.repeat);
                     }
                 }
             };
 
             pub fn subtract(a: Results, b: Results) linksection(IRAM_ATTR) Difference {
-                var ret: Difference = undefined;
+                assert(a.repeat == b.repeat);
+                var ret: Difference = .{
+                    .r = undefined,
+                    .repeat = a.repeat,
+                };
                 for (&ret.r, a.r, b.r) |*rr, ar, br| {
                     rr.* = ar.subtract(br);
                 }
@@ -187,15 +193,6 @@ pub fn benchmark(comptime stat_table: []const Statistic) type {
             return struct {
                 const Self = @This();
 
-                pub inline fn run_and_print(
-                    repeat: u8,
-                    args: Args,
-                ) linksection(IRAM_ATTR) Error!ReturnValue {
-                    const results, const return_value = try run_internal(repeat, args, .{});
-                    try results.print(repeat);
-                    return return_value;
-                }
-
                 pub inline fn run(
                     repeat: u8,
                     args: Args,
@@ -203,15 +200,6 @@ pub fn benchmark(comptime stat_table: []const Statistic) type {
                     return run_internal(repeat, args, .{
                         .compare_results = true,
                     });
-                }
-
-                /// Use this if the function may return a different value on subsequent calls
-                pub inline fn run_and_print_not_pure(
-                    repeat: u8,
-                    args: Args,
-                ) linksection(IRAM_ATTR) Error!void {
-                    const results, _ = try run_internal(repeat, args, .{});
-                    try results.print();
                 }
 
                 const Option = struct {
@@ -241,7 +229,10 @@ pub fn benchmark(comptime stat_table: []const Statistic) type {
                         }
                     }
 
-                    var results: Results = undefined;
+                    var results: Results = .{
+                        .r = undefined,
+                        .repeat = repeat,
+                    };
 
                     for (&results.r, stat_table) |*result, stat| {
                         const retry = 3 + (repeat / 16); // Should be plenty
@@ -362,45 +353,47 @@ pub const counter = struct {
 };
 
 const apis = struct {
+    const BenchMarkOrWriterError = BenchmarkError || std.Io.Writer.Error;
+
     // Rewrite & improvement of `sys.xtensa_perfmon_view_cb`
-    fn print_result(stat: Statistic, result: BenchMarkStatResult, repeat: u8) BenchmarkError!void {
-        log.info(
-            "min/max/avg = {d:9} /{d:9} /{d:9} , select = {d:2}, mask = 0x{x:04}",
+    fn print_result(w: *std.Io.Writer, stat: Statistic, result: BenchMarkStatResult, repeat: u8) std.Io.Writer.Error!void {
+        try w.print(
+            "min/max/avg = {d:9} /{d:9} /{d:9} , select = {d:2}, mask = 0x{x:04}\n",
             .{ result.min, result.max, (result.total / repeat), stat.infer().raw(), stat.raw() },
         );
-        log.info(
-            "    {s}.",
-            .{try get_select_description(stat)},
+        try w.print(
+            "    {s}.\n",
+            .{get_select_description(stat) catch unreachable},
         );
 
-        const backing, const len = try get_mask_descriptions(stat);
+        const backing, const len = get_mask_descriptions(stat) catch unreachable;
         const mask_descriptions = backing[0..len];
 
         for (mask_descriptions) |desc| {
-            log.info(
-                "        {s}",
+            try w.print(
+                "        {s}\n",
                 .{desc},
             );
         }
     }
 
     // Exactly the same, but can take 'difference' (allows negative)
-    fn print_result_difference(stat: Statistic, result: BenchMarkStatResult.Difference, repeat: u8) BenchmarkError!void {
-        log.info(
-            "min/max/avg = {d:9} /{d:9} /{d:9} , select = {d:2}, mask = 0x{x:04}",
+    fn print_result_difference(w: *std.Io.Writer, stat: Statistic, result: BenchMarkStatResult.Difference, repeat: u8) std.Io.Writer.Error!void {
+        try w.print(
+            "min/max/avg = {d:9} /{d:9} /{d:9} , select = {d:2}, mask = 0x{x:04}\n",
             .{ result.min, result.max, @divTrunc(result.total, repeat), stat.infer().raw(), stat.raw() },
         );
-        log.info(
-            "    {s}.",
-            .{try get_select_description(stat)},
+        try w.print(
+            "    {s}.\n",
+            .{get_select_description(stat) catch unreachable},
         );
 
-        const backing, const len = try get_mask_descriptions(stat);
+        const backing, const len = get_mask_descriptions(stat) catch unreachable;
         const mask_descriptions = backing[0..len];
 
         for (mask_descriptions) |desc| {
-            log.info(
-                "        {s}",
+            try w.print(
+                "        {s}\n",
                 .{desc},
             );
         }
