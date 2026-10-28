@@ -51,6 +51,15 @@ export fn app_main() callconv(.c) void {
     log.info("The end!", .{});
 }
 
+pub const panic = idf.esp_panic.panic;
+pub const std_options: std.Options = .{
+    .log_level = switch (builtin.mode) {
+        .Debug => .debug,
+        else => .info,
+    },
+    .logFn = idf.log.espLogFn,
+};
+
 fn basic_benchmark() !void {
     var numbers: [4]i32 = .{ 1, 2, 3, 4 };
 
@@ -218,15 +227,6 @@ fn run_optimised_functions() !void {
     }
 }
 
-pub const panic = idf.esp_panic.panic;
-pub const std_options: std.Options = .{
-    .log_level = switch (builtin.mode) {
-        .Debug => .debug,
-        else => .info,
-    },
-    .logFn = idf.log.espLogFn,
-};
-
 /// Add up the numbers in a `[]i32`
 ///
 /// Assumes the array is 128-bit aligned, to make the vectorised
@@ -292,6 +292,8 @@ const total = struct {
     /// Assembly loop
     /// Swapping two instructions prevents a 1-cycle read-hazard
     /// resulting in 1 less pipeline bubble per iteration.
+    ///
+    /// Look for: "R hold caused by register dependency"
     fn basic_loop_1(numbers: []const i32) i32 {
         assert(std.mem.isAligned(@intFromPtr(numbers.ptr), 16));
         assert(numbers.len % 4 == 0);
@@ -484,11 +486,12 @@ const total = struct {
     /// [4]i32 from memory, in a single cycle. It also increments the address
     /// byt 16 bytes - perfect for reading contiguous memory.
     ///
-    /// Note that this loop takes TWO cycles per iteration, when it should be
-    /// two. This is because instructions not aligned to 32-bits take two cycles to load.
-    /// Usually, this overlaps with the previous instructions and so you don't notice.
-    /// this doesn't work for zero-copy loops where the previous instruction is not
-    /// contiguous memory.
+    /// Note that this loop takes TWO cycles per iteration, when there is only
+    /// a single instruction. The instruction loads q1 from memory, but it's not
+    /// available in time for the next instruction to use it as an operand. The
+    /// processor must wait for one extra cycle a.k.a. a pipeline bubble.
+    ///
+    /// Look for: "R hold caused by register dependency"
     fn vectorised_1(numbers: []const i32) i32 {
         assert(std.mem.isAligned(@intFromPtr(numbers.ptr), 16));
         assert(numbers.len % 4 == 0);
