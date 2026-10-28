@@ -39,15 +39,25 @@ const benchmark = perfmon.benchmark(checks);
 
 const REPEAT = 20;
 
+var write_buffer: [64 * 1024]u8 = undefined;
+
 export fn app_main() callconv(.c) void {
-    basic_benchmark() catch |err| {
+    var console = serialConsole.writer(&write_buffer);
+    const console_writer = &console;
+
+    basic_benchmark(console_writer) catch |err| {
         @panic(@errorName(err));
     };
 
     idf.rtos.Task.delayMs(2000);
-    run_optimised_functions() catch |err| {
+    run_optimised_functions(console_writer) catch |err| {
         @panic(@errorName(err));
     };
+
+    console.flush() catch |err| {
+        @panic(@errorName(err));
+    };
+
     log.info("The end!", .{});
 }
 
@@ -60,7 +70,7 @@ pub const std_options: std.Options = .{
     .logFn = idf.log.espLogFn,
 };
 
-fn basic_benchmark() !void {
+fn basic_benchmark(stats_out: *std.Io.Writer) !void {
     var numbers: [4]i32 = .{ 1, 2, 3, 4 };
 
     // The simplest way to benchmark a function
@@ -73,7 +83,7 @@ fn basic_benchmark() !void {
         log.info("benchmark add_up_numbers()", .{});
         const results, const return_value = try benchmark.FnPure(add_up_numbers).run(3, .{&numbers});
         log.info("return_value = {}", .{return_value});
-        log.info("{f}", .{results});
+        try stats_out.print("{f}", .{results});
 
         if (expected_result != return_value) @panic("");
     }
@@ -85,7 +95,7 @@ fn basic_benchmark() !void {
         log.info("benchmark running_total(), resetting arguments between runs", .{});
         const results, const return_value = try benchmark.FnReset(running_total, reset_numbers).run(3, .{&numbers});
         log.info("return_value = {}", .{return_value});
-        log.info("{f}", .{results});
+        try stats_out.print("{f}", .{results});
 
         if (expected_result != return_value) @panic("");
         if (!std.mem.eql(i32, &numbers, &[4]i32{ 1, 3, 6, 10 })) @panic("");
@@ -123,9 +133,7 @@ noinline fn reset_numbers(numbers: []i32) linksection(IRAM_ATTR) void {
 const ARRAY_LENGTH: i32 = 1000;
 const EXPECTED: i32 = (ARRAY_LENGTH - 1) * (ARRAY_LENGTH / 2);
 
-// idf.log.ESP_LOG(allocator, idf.log.default_level, "EXAMPLE", "Arr value: {}\n", .{value});
-
-fn run_optimised_functions() !void {
+fn run_optimised_functions(stats_out: *std.Io.Writer) linksection(IRAM_ATTR) !void {
     var numbers: [ARRAY_LENGTH]i32 align(16) = undefined;
     for (&numbers, 0..) |*n, i| {
         n.* = @intCast(i);
@@ -133,9 +141,9 @@ fn run_optimised_functions() !void {
 
     {
         log.info("do nothing", .{});
-        const results, const return_value = try benchmark.FnPure(total.do_nothing).run(REPEAT, .{&numbers});
+        const results, const return_value = try benchmark.FnPure(total.do_nothing).runAverage(REPEAT, .{&numbers});
         log.info("return_value = {}", .{return_value});
-        log.info("{f}", .{results});
+        try stats_out.print("{f}", .{results});
         // log.warn("{f}", .{results.subtract(prev_results)}); // No previous results yet
     }
     idf.rtos.Task.yield();
@@ -144,7 +152,7 @@ fn run_optimised_functions() !void {
         const results, const return_value = try benchmark.FnPure(total.zig_loop).run(REPEAT, .{&numbers});
         if (return_value != EXPECTED) @panic("");
         log.info("return_value = {}", .{return_value});
-        log.info("{f}", .{results});
+        try stats_out.print("{f}", .{results});
     }
     idf.rtos.Task.yield();
     {
@@ -152,7 +160,7 @@ fn run_optimised_functions() !void {
         const results, const return_value = try benchmark.FnPure(total.basic_loop_0).run(REPEAT, .{&numbers});
         if (return_value != EXPECTED) @panic("");
         log.info("return_value = {}", .{return_value});
-        log.info("{f}", .{results});
+        try stats_out.print("{f}", .{results});
     }
     idf.rtos.Task.yield();
     {
@@ -160,7 +168,7 @@ fn run_optimised_functions() !void {
         const results, const return_value = try benchmark.FnPure(total.basic_loop_1).run(REPEAT, .{&numbers});
         if (return_value != EXPECTED) @panic("");
         log.info("return_value = {}", .{return_value});
-        log.info("{f}", .{results});
+        try stats_out.print("{f}", .{results});
     }
     idf.rtos.Task.yield();
     {
@@ -168,7 +176,7 @@ fn run_optimised_functions() !void {
         const results, const return_value = try benchmark.FnPure(total.zero_overhead_loop_0).run(REPEAT, .{&numbers});
         if (return_value != EXPECTED) @panic("");
         log.info("return_value = {}", .{return_value});
-        log.info("{f}", .{results});
+        try stats_out.print("{f}", .{results});
     }
     idf.rtos.Task.yield();
     {
@@ -176,7 +184,7 @@ fn run_optimised_functions() !void {
         const results, const return_value = try benchmark.FnPure(total.zero_overhead_loop_1).run(REPEAT, .{&numbers});
         if (return_value != EXPECTED) @panic("");
         log.info("return_value = {}", .{return_value});
-        log.info("{f}", .{results});
+        try stats_out.print("{f}", .{results});
     }
 
     // Further optimisations require SIMD, which is only available on the ESP32-S3
@@ -189,7 +197,7 @@ fn run_optimised_functions() !void {
             // This function sometimes gives inconsistent results. runAverage() collects min/max/total
             const results, const return_value = try benchmark.FnPure(total.zig_loop_vec).runAverage(REPEAT, .{&numbers});
             log.info("return_value = {}", .{return_value});
-            log.info("{f}", .{results});
+            try stats_out.print("{f}", .{results});
             if (return_value != EXPECTED) @panic("");
         }
         idf.rtos.Task.yield();
@@ -197,7 +205,7 @@ fn run_optimised_functions() !void {
             log.info("vectorised zero-overhead loop", .{});
             const results, const return_value = try benchmark.FnPure(total.vectorised_0).run(REPEAT, .{&numbers});
             log.info("return_value = {}", .{return_value});
-            log.info("{f}", .{results});
+            try stats_out.print("{f}", .{results});
             if (return_value != EXPECTED) @panic("");
         }
         idf.rtos.Task.yield();
@@ -205,7 +213,7 @@ fn run_optimised_functions() !void {
             log.info("improved vector code", .{});
             const results, const return_value = try benchmark.FnPure(total.vectorised_1).run(REPEAT, .{&numbers});
             log.info("return_value = {}", .{return_value});
-            log.info("{f}", .{results});
+            try stats_out.print("{f}", .{results});
             if (return_value != EXPECTED) @panic("");
         }
         idf.rtos.Task.yield();
@@ -214,14 +222,14 @@ fn run_optimised_functions() !void {
             // This function sometimes gives inconsistent results. runAverage() collects min/max/total
             const results, const return_value = try benchmark.FnPure(total.vectorised_2).runAverage(REPEAT, .{&numbers});
             log.info("return_value = {}", .{return_value});
-            log.info("{f}", .{results});
+            try stats_out.print("{f}", .{results});
             if (return_value != EXPECTED) @panic("");
         }
         {
             log.info("Align zero-copy loop to prevent wasted cycle", .{});
             const results, const return_value = try benchmark.FnPure(total.vectorised_3).run(REPEAT, .{&numbers});
             log.info("return_value = {}", .{return_value});
-            log.info("{f}", .{results});
+            try stats_out.print("{f}", .{results});
             if (return_value != EXPECTED) @panic("");
         }
     }
@@ -234,7 +242,7 @@ fn run_optimised_functions() !void {
 /// for head & tail.
 const total = struct {
     /// Zig `for` loop
-    fn zig_loop(numbers: []const i32) i32 {
+    noinline fn zig_loop(numbers: []const i32) linksection(IRAM_ATTR) i32 {
         assert(std.mem.isAligned(@intFromPtr(numbers.ptr), 16));
         assert(numbers.len % 4 == 0);
         assert(numbers.len > 0);
@@ -247,7 +255,7 @@ const total = struct {
     }
 
     /// Get an idea of how much overhead the perfmon calls have
-    fn do_nothing(numbers: []const i32) i32 {
+    noinline fn do_nothing(numbers: []const i32) linksection(IRAM_ATTR) i32 {
         _ = numbers;
         asm volatile (
             \\nop
@@ -257,7 +265,7 @@ const total = struct {
 
     /// Assembly loop - intended to be as similar as possible to the
     /// zig loop, give or take a few cycles.
-    fn basic_loop_0(numbers: []const i32) i32 {
+    noinline fn basic_loop_0(numbers: []const i32) linksection(IRAM_ATTR) i32 {
         assert(std.mem.isAligned(@intFromPtr(numbers.ptr), 16));
         assert(numbers.len % 4 == 0);
         assert(numbers.len > 0);
@@ -667,5 +675,97 @@ const total = struct {
               .q3 = true,
               .memory = true,
             });
+    }
+};
+
+/// This should be moved into its own component at some point
+const serialConsole = struct {
+    const Writer = std.Io.Writer;
+    const Error = Writer.Error;
+
+    const FILENO = 1; // stdout
+
+    fn writer(buffer: []u8) Writer {
+        return .{
+            .vtable = &.{
+                .drain = drain,
+                // .flush = std.Io.Writer.noopFlush,
+            },
+            .buffer = buffer,
+        };
+    }
+
+    // TODO: Make this blocking (instead of busy-wait)
+    // Currently this will busy-wait for space in the UART FIFO.
+    // https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-guides/stdio.html#blocking-and-non-blocking-i-o
+    inline fn c_write(fd: std.c.fd_t, buf: []const u8) Error!usize {
+        const written_or_error = std.c.write(fd, buf.ptr, buf.len);
+        if (written_or_error < 0) return Error.WriteFailed;
+        return @intCast(written_or_error);
+    }
+
+    /// This will wait until the UART FIFO is empty before returning
+    inline fn c_flush(fd: std.c.fd_t) Error!void {
+        const err = std.c.fsync(fd);
+        if (err != 0) return Error.WriteFailed;
+    }
+
+    /// Note: currently this busy-waits until all data is written, because of how the underlying esp-idf does things
+    fn drain(w: *std.Io.Writer, data: []const []const u8, splat: usize) Error!usize {
+        // First the already-buffered data:
+        if (w.end > 0) {
+            const buffered = w.buffer[0..w.end];
+            const written = try c_write(FILENO, buffered);
+
+            if (written < buffered.len) {
+                const remaining = buffered[written..];
+                @memmove(buffered[0..remaining.len], remaining);
+                w.end -= written;
+                return 0; // If stdout is cockblocking us then there's no point trying to write more data now
+            } else {
+                w.end -= written;
+                assert(w.end == 0);
+            }
+        }
+
+        // Is there actually new data?
+        if (data.len == 0) return 0;
+        if (data.len == 1 and splat == 0) return 0;
+
+        var ret: usize = 0;
+
+        // The last slice could be splatted. Deal with it afterwards
+        const todo: []const []const u8 = data[0 .. data.len - 1];
+        const splat_slice: []const u8 = data[data.len - 1];
+        for (todo) |slice| {
+            const written = try c_write(FILENO, slice);
+            ret += written;
+
+            if (written < slice.len) {
+                return ret;
+            } else {
+                assert(written == slice.len);
+            }
+        }
+
+        // Did we need to splat a slice?
+        for (0..splat) |_| {
+            const slice = splat_slice;
+            const written = try c_write(FILENO, slice);
+            ret += written;
+
+            if (written < slice.len) {
+                return ret;
+            } else {
+                assert(written == slice.len);
+            }
+        }
+        return ret;
+    }
+
+    fn flush(w: *Writer) Error!void {
+        const drainFn = w.vtable.drain;
+        while (w.end != 0) _ = try drainFn(w, &.{""}, 1);
+        try c_flush(FILENO);
     }
 };
