@@ -24,6 +24,11 @@ const sys = idf.sys;
 
 const perfmon = idf.perfmon;
 
+// Places code into IRAM instead of flash
+const IRAM_ATTR = ".iram1";
+// Forces code into IRAM instead of flash
+// const FORCE_IRAM_ATTR = ".iram1"; // Combine IRAM_ATTR with 'noinline'
+
 const assert = std.debug.assert;
 
 const log = std.log.scoped(.perfmon_example);
@@ -32,7 +37,7 @@ const checks = &perfmon.perfmon_check_table.new_simple;
 
 const benchmark = perfmon.benchmark(checks);
 
-const REPEAT = 10;
+const REPEAT = 20;
 
 export fn app_main() callconv(.c) void {
     basic_benchmark() catch |err| {
@@ -46,30 +51,6 @@ export fn app_main() callconv(.c) void {
     log.info("The end!", .{});
 }
 
-/// Function to be benchmarked
-noinline fn add_up_numbers(numbers: []const i32) i32 {
-    var sum: i32 = 0;
-    for (numbers) |n| {
-        sum += n;
-    }
-    return sum;
-}
-
-/// A function that edits its arguments
-noinline fn running_total(numbers: []i32) i32 {
-    var sum: i32 = 0;
-    for (numbers) |*n| {
-        sum += n.*;
-        n.* = sum;
-    }
-    return sum;
-}
-
-noinline fn reset_numbers(numbers: []i32) void {
-    const reset: [4]i32 = .{ 1, 2, 3, 4 };
-    @memcpy(numbers, &reset);
-}
-
 fn basic_benchmark() !void {
     var numbers: [4]i32 = .{ 1, 2, 3, 4 };
 
@@ -81,7 +62,7 @@ fn basic_benchmark() !void {
         const expected_result = add_up_numbers(&numbers);
 
         log.info("benchmark add_up_numbers()", .{});
-        const results, const return_value = try benchmark.FnPure(add_up_numbers).run(REPEAT, .{&numbers});
+        const results, const return_value = try benchmark.FnPure(add_up_numbers).run(3, .{&numbers});
         log.info("return_value = {}", .{return_value});
         log.info("{f}", .{results});
 
@@ -93,7 +74,7 @@ fn basic_benchmark() !void {
     {
         const expected_result = running_total(&numbers);
         log.info("benchmark running_total(), resetting arguments between runs", .{});
-        const results, const return_value = try benchmark.FnReset(running_total, reset_numbers).run(REPEAT, .{&numbers});
+        const results, const return_value = try benchmark.FnReset(running_total, reset_numbers).run(3, .{&numbers});
         log.info("return_value = {}", .{return_value});
         log.info("{f}", .{results});
 
@@ -101,6 +82,34 @@ fn basic_benchmark() !void {
         if (!std.mem.eql(i32, &numbers, &[4]i32{ 1, 3, 6, 10 })) @panic("");
     }
 }
+
+/// Function to be benchmarked
+noinline fn add_up_numbers(numbers: []const i32) linksection(IRAM_ATTR) i32 {
+    var sum: i32 = 0;
+    for (numbers) |n| {
+        sum += n;
+    }
+    return sum;
+}
+
+/// A function that edits its arguments
+noinline fn running_total(numbers: []i32) linksection(IRAM_ATTR) i32 {
+    var sum: i32 = 0;
+    for (numbers) |*n| {
+        sum += n.*;
+        n.* = sum;
+    }
+    return sum;
+}
+
+// Reset arguments to ensure each run is the same
+noinline fn reset_numbers(numbers: []i32) linksection(IRAM_ATTR) void {
+    const reset: [4]i32 = .{ 1, 2, 3, 4 };
+    @memcpy(numbers, &reset);
+}
+
+// Below is a demonstration of how perfmon can be used to verify and guide
+// the process of hand-optimizing a function in assembly.
 
 const ARRAY_LENGTH: i32 = 1000;
 const EXPECTED: i32 = (ARRAY_LENGTH - 1) * (ARRAY_LENGTH / 2);
@@ -113,15 +122,12 @@ fn run_optimised_functions() !void {
         n.* = @intCast(i);
     }
 
-    var prev_results: benchmark.MultipleRunResults = undefined;
-
     {
         log.info("do nothing", .{});
         const results, const return_value = try benchmark.FnPure(total.do_nothing).run(REPEAT, .{&numbers});
         log.info("return_value = {}", .{return_value});
         log.info("{f}", .{results});
         // log.warn("{f}", .{results.subtract(prev_results)}); // No previous results yet
-        prev_results = results;
     }
     idf.rtos.Task.yield();
     {
@@ -130,7 +136,6 @@ fn run_optimised_functions() !void {
         if (return_value != EXPECTED) @panic("");
         log.info("return_value = {}", .{return_value});
         log.info("{f}", .{results});
-        prev_results = results;
     }
     idf.rtos.Task.yield();
     {
@@ -139,7 +144,6 @@ fn run_optimised_functions() !void {
         if (return_value != EXPECTED) @panic("");
         log.info("return_value = {}", .{return_value});
         log.info("{f}", .{results});
-        prev_results = results;
     }
     idf.rtos.Task.yield();
     {
@@ -148,8 +152,6 @@ fn run_optimised_functions() !void {
         if (return_value != EXPECTED) @panic("");
         log.info("return_value = {}", .{return_value});
         log.info("{f}", .{results});
-        log.warn("{f}", .{results.subtract(prev_results)});
-        prev_results = results;
     }
     idf.rtos.Task.yield();
     {
@@ -158,8 +160,6 @@ fn run_optimised_functions() !void {
         if (return_value != EXPECTED) @panic("");
         log.info("return_value = {}", .{return_value});
         log.info("{f}", .{results});
-        log.warn("{f}", .{results.subtract(prev_results)});
-        prev_results = results;
     }
     idf.rtos.Task.yield();
     {
@@ -168,7 +168,6 @@ fn run_optimised_functions() !void {
         if (return_value != EXPECTED) @panic("");
         log.info("return_value = {}", .{return_value});
         log.info("{f}", .{results});
-        prev_results = results;
     }
 
     // Further optimisations require SIMD, which is only available on the ESP32-S3
@@ -178,7 +177,8 @@ fn run_optimised_functions() !void {
         idf.rtos.Task.yield();
         {
             log.info("zig loop, @Vector", .{});
-            const results, const return_value = try benchmark.FnPure(total.zig_loop_vec).run(REPEAT, .{&numbers});
+            // This function sometimes gives inconsistent results. runAverage() collects min/max/total
+            const results, const return_value = try benchmark.FnPure(total.zig_loop_vec).runAverage(REPEAT, .{&numbers});
             log.info("return_value = {}", .{return_value});
             log.info("{f}", .{results});
             if (return_value != EXPECTED) @panic("");
@@ -202,7 +202,8 @@ fn run_optimised_functions() !void {
         idf.rtos.Task.yield();
         {
             log.info("Use more vector registers", .{});
-            const results, const return_value = try benchmark.FnPure(total.vectorised_2).run(REPEAT, .{&numbers});
+            // This function sometimes gives inconsistent results. runAverage() collects min/max/total
+            const results, const return_value = try benchmark.FnPure(total.vectorised_2).runAverage(REPEAT, .{&numbers});
             log.info("return_value = {}", .{return_value});
             log.info("{f}", .{results});
             if (return_value != EXPECTED) @panic("");

@@ -62,6 +62,7 @@ const PERFMON_TRACELEVEL: c_int = -1;
 const BenchmarkError = error{
     Failed,
     InconsistentResults, // see `run_not_pure()`
+    InconsistentStatResults, // see `run_not_pure()`
     IramBusyStall,
     UnknownCounter,
     UnknownCounterMask,
@@ -103,6 +104,19 @@ pub fn benchmark(comptime stat_table: []const Statistic) type {
     const Error = BenchmarkError;
 
     return struct {
+        pub const Results = struct {
+            r: [stat_table.len]u32,
+
+            pub fn format(
+                self: Results,
+                w: *std.Io.Writer,
+            ) std.Io.Writer.Error!void {
+                for (self.r, stat_table) |result, stat| {
+                    try apis.print_result_simple(w, stat, result);
+                }
+            }
+        };
+
         pub const MultipleRunResults = struct {
             // repeat: [stat_table.len]u32,
             // min: [stat_table.len]u32,
@@ -116,7 +130,11 @@ pub fn benchmark(comptime stat_table: []const Statistic) type {
                 w: *std.Io.Writer,
             ) std.Io.Writer.Error!void {
                 for (self.r, stat_table) |result, stat| {
-                    try apis.print_result(w, stat, result, self.repeat);
+                    if (result.min == result.max) {
+                        try apis.print_result_simple(w, stat, result.min);
+                    } else {
+                        try apis.print_result(w, stat, result, self.repeat);
+                    }
                 }
             }
 
@@ -215,14 +233,84 @@ pub fn benchmark(comptime stat_table: []const Statistic) type {
             return struct {
                 const Self = @This();
 
-                pub inline fn run(
+                pub noinline fn run(
                     repeat: u8,
                     args: Args,
-                ) linksection(IRAM_ATTR) Error!struct { MultipleRunResults, ReturnValue } {
-                    return run_internal_multiple(repeat, args);
+                ) linksection(IRAM_ATTR) Error!struct { Results, ReturnValue } {
+                    // Warm-up the Instruction cache
+                    var expected_return_value: ReturnValue = undefined;
+                    if (true) {
+                        try reset_internal(args);
+                        expected_return_value, const cycles, const iram_busy = internal.run_once(
+                            pm_counter_cycles,
+                            pm_counter_iram_busy,
+                            args,
+                            .all,
+                        );
+                        _ = cycles;
+
+                        if (iram_busy > 0) {
+                            log.debug("WARMUP: Instruction RAM/ROM busy stall = {}", .{iram_busy});
+                        }
+                    }
+
+                    var results: Results = .{
+                        .r = undefined,
+                    };
+
+                    for (&results.r, stat_table) |*result, stat| {
+                        const retry = 3 + (repeat / 16); // Should be plenty
+
+                        var current_result: ?u32 = null;
+
+                        var invalid: u32 = 0;
+                        var done: u32 = 0;
+                        while (done < repeat) {
+                            try reset_internal(args);
+
+                            const return_value, const stats = run_once(
+                                stat,
+                                args,
+                            ) catch |err| {
+                                invalid += 1;
+                                if (err == Error.IramBusyStall and invalid < retry) {
+                                    // If code was not in IRAM, it should be now
+                                    // Also, there is occasionally a 1-cycle stall. Maybe the other core is blocking it for a moment?
+                                    continue;
+                                }
+
+                                log.err(
+                                    "Done = {}/{}, Invalid = {}/{}: {t}",
+                                    .{ done, repeat, invalid, retry, err },
+                                );
+                                return err;
+                            };
+
+                            if (option.consistent_return_value) {
+                                if (expected_return_value != return_value) return Error.InconsistentResults;
+                            }
+
+                            if (current_result) |expected_result| {
+                                if (stats != expected_result) return Error.InconsistentStatResults;
+                            } else {
+                                current_result = stats;
+                            }
+                            done += 1;
+                        }
+                        log.debug("Result = {}", .{current_result});
+                        if (invalid > 0) {
+                            log.warn(
+                                "Done = {}/{}, Invalid = {}/{}",
+                                .{ done, repeat, invalid, retry },
+                            );
+                        }
+
+                        result.* = current_result.?;
+                    }
+                    return .{ results, expected_return_value };
                 }
 
-                noinline fn run_internal_multiple(
+                pub noinline fn runAverage(
                     repeat: u8,
                     args: Args,
                 ) linksection(IRAM_ATTR) Error!struct { MultipleRunResults, ReturnValue } {
@@ -290,7 +378,7 @@ pub fn benchmark(comptime stat_table: []const Statistic) type {
                     return .{ results, expected_return_value };
                 }
 
-                inline fn reset_internal(args: Args) Error!void {
+                inline fn reset_internal(args: Args) linksection(IRAM_ATTR) Error!void {
                     if (resetFn_info == .null) {
                         return; // no reset required
                     } else {
@@ -370,6 +458,28 @@ const apis = struct {
     const BenchMarkOrWriterError = BenchmarkError || std.Io.Writer.Error;
 
     // Rewrite & improvement of `sys.xtensa_perfmon_view_cb`
+    fn print_result_simple(w: *std.Io.Writer, stat: Statistic, result: u32) std.Io.Writer.Error!void {
+        try w.print(
+            "{d:9}, select = {d:2}, mask = 0x{x:04}\n",
+            .{ result, stat.infer().raw(), stat.raw() },
+        );
+        try w.print(
+            "    {s}.\n",
+            .{get_select_description(stat) catch unreachable},
+        );
+
+        const backing, const len = get_mask_descriptions(stat) catch unreachable;
+        const mask_descriptions = backing[0..len];
+
+        for (mask_descriptions) |desc| {
+            try w.print(
+                "        {s}\n",
+                .{desc},
+            );
+        }
+    }
+
+    // Separate min, max, total
     fn print_result(w: *std.Io.Writer, stat: Statistic, result: MultipleRunResult, repeat: u8) std.Io.Writer.Error!void {
         try w.print(
             "min/max/avg = {d:9} /{d:9} /{d:9} , select = {d:2}, mask = 0x{x:04}\n",
