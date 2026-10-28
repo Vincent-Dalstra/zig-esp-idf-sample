@@ -80,19 +80,6 @@ const MultipleRunResult = struct {
         .total = 0,
     };
 
-    fn subtract(a: MultipleRunResult, b: MultipleRunResult) Difference {
-        return .{
-            .min = @as(i33, a.min) - @as(i33, b.min),
-            .max = @as(i33, a.max) - @as(i33, b.max),
-            .total = @as(i41, a.total) - @as(i41, b.total),
-        };
-    }
-    const Difference = struct {
-        min: i33,
-        max: i33,
-        total: i41,
-    };
-
     fn add_result(self: *MultipleRunResult, val: u32) void {
         self.max = @max(self.max, val);
         self.min = @min(self.min, val);
@@ -151,18 +138,6 @@ pub fn benchmark(comptime stat_table: []const Statistic) type {
                     }
                 }
             };
-
-            pub fn subtract(a: MultipleRunResults, b: MultipleRunResults) linksection(IRAM_ATTR) Difference {
-                assert(a.repeat == b.repeat);
-                var ret: Difference = .{
-                    .r = undefined,
-                    .repeat = a.repeat,
-                };
-                for (&ret.r, a.r, b.r) |*rr, ar, br| {
-                    rr.* = ar.subtract(br);
-                }
-                return ret;
-            }
         };
 
         /// Note: `function` will be executed multiple times!
