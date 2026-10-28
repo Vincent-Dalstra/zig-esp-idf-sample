@@ -266,7 +266,13 @@ pub fn benchmark(comptime stat_table: []const Statistic) type {
                             }
 
                             if (current_result) |expected_result| {
-                                if (stats != expected_result) return Error.InconsistentStatResults;
+                                if (stats != expected_result) {
+                                    log.warn(
+                                        "Done = {}/{}, Invalid = {}/{}, expected/actual: {d:9} != {d:9} , select = {d:2}, mask = 0x{x:04}\n",
+                                        .{ done, repeat, invalid, retry, expected_result, stats, stat.infer().raw(), stat.raw() },
+                                    );
+                                    return Error.InconsistentStatResults;
+                                }
                             } else {
                                 current_result = stats;
                             }
