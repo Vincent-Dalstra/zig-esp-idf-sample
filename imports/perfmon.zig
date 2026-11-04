@@ -102,6 +102,16 @@ pub fn benchmark(comptime stat_table: []const Statistic) type {
                     try apis.print_result_simple(w, stat, result);
                 }
             }
+
+            pub fn print_table_row(results: Results, w: *std.Io.Writer, prefix: []const u8) std.Io.Writer.Error!void {
+                assert(null == std.mem.find(u8, prefix, ","));
+                try w.writeAll(prefix);
+
+                for (results.r) |result| {
+                    try w.print(",{}", .{result});
+                }
+                try w.print("\n", .{});
+            }
         };
 
         pub const MultipleRunResults = struct {
@@ -124,7 +134,36 @@ pub fn benchmark(comptime stat_table: []const Statistic) type {
                     }
                 }
             }
+
+            pub fn print_table_row(results: MultipleRunResults, w: *std.Io.Writer, prefix: []const u8) std.Io.Writer.Error!void {
+                assert(null == std.mem.find(u8, prefix, ","));
+                try w.writeAll(prefix);
+
+                for (results.r) |result| {
+                    if (result.min == result.max) {
+                        try w.print(",{}", .{result.min});
+                    } else {
+                        try w.print(",{}-{}-{}", .{ result.min, (result.total / results.repeat), result.max });
+                    }
+                }
+                try w.print("\n", .{});
+            }
         };
+
+        pub fn print_table_header(w: *std.Io.Writer) std.Io.Writer.Error!void {
+            try w.print("select", .{});
+            for (stat_table) |stat| {
+                const stat_select: u5 = stat.infer().raw();
+                try w.print(",{}", .{stat_select});
+            }
+            try w.print("\n", .{});
+            try w.print("mask", .{});
+            for (stat_table) |stat| {
+                const stat_mask: u16 = stat.raw();
+                try w.print(",0x{x:04}", .{stat_mask});
+            }
+            try w.print("\n", .{});
+        }
 
         /// Note: `function` will be executed multiple times!
         /// This is necessary to collect each of the different statistics.

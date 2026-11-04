@@ -50,6 +50,7 @@ export fn app_main() callconv(.c) void {
     };
 
     idf.rtos.Task.delayMs(2000);
+
     run_optimised_functions(console_writer) catch |err| {
         @panic(@errorName(err));
     };
@@ -100,6 +101,8 @@ fn basic_benchmark(stats_out: *std.Io.Writer) !void {
         if (expected_result != return_value) @panic("");
         if (!std.mem.eql(i32, &numbers, &[4]i32{ 1, 3, 6, 10 })) @panic("");
     }
+
+    try stats_out.flush();
 }
 
 /// Function to be benchmarked
@@ -139,52 +142,60 @@ fn run_optimised_functions(stats_out: *std.Io.Writer) linksection(IRAM_ATTR) !vo
         n.* = @intCast(i);
     }
 
+    try benchmark.print_table_header(stats_out);
+
     {
+        const name = "do_nothing";
         log.info("do nothing", .{});
         const results, const return_value = try benchmark.FnPure(total.do_nothing).runAverage(REPEAT, .{&numbers});
         log.info("return_value = {}", .{return_value});
-        try stats_out.print("{f}", .{results});
-        // log.warn("{f}", .{results.subtract(prev_results)}); // No previous results yet
+        // try stats_out.print("{f}", .{results});
+        try results.print_table_row(stats_out, name);
     }
     idf.rtos.Task.yield();
     {
+        const name = "zig_loop";
         log.info("zig loop", .{});
         const results, const return_value = try benchmark.FnPure(total.zig_loop).run(REPEAT, .{&numbers});
         if (return_value != EXPECTED) @panic("");
         log.info("return_value = {}", .{return_value});
-        try stats_out.print("{f}", .{results});
+        try results.print_table_row(stats_out, name);
     }
     idf.rtos.Task.yield();
     {
+        const name = "asm_loop";
         log.info("asm loop (should be similar to zig loop)", .{});
         const results, const return_value = try benchmark.FnPure(total.basic_loop_0).run(REPEAT, .{&numbers});
         if (return_value != EXPECTED) @panic("");
         log.info("return_value = {}", .{return_value});
-        try stats_out.print("{f}", .{results});
+        try results.print_table_row(stats_out, name);
     }
     idf.rtos.Task.yield();
     {
+        const name = "asm_loop no hazard";
         log.info("asm loop, without the data hazard", .{});
         const results, const return_value = try benchmark.FnPure(total.basic_loop_1).run(REPEAT, .{&numbers});
         if (return_value != EXPECTED) @panic("");
         log.info("return_value = {}", .{return_value});
-        try stats_out.print("{f}", .{results});
+        try results.print_table_row(stats_out, name);
     }
     idf.rtos.Task.yield();
     {
+        const name = "zero-overhead loop";
         log.info("zero-overhead loop", .{});
         const results, const return_value = try benchmark.FnPure(total.zero_overhead_loop_0).run(REPEAT, .{&numbers});
         if (return_value != EXPECTED) @panic("");
         log.info("return_value = {}", .{return_value});
-        try stats_out.print("{f}", .{results});
+        try results.print_table_row(stats_out, name);
     }
     idf.rtos.Task.yield();
     {
+        const name = "mis-aligned zero-overhead loop";
         log.info("mis-aligned instruction at zero-overhead loop start", .{});
         const results, const return_value = try benchmark.FnPure(total.zero_overhead_loop_1).run(REPEAT, .{&numbers});
         if (return_value != EXPECTED) @panic("");
         log.info("return_value = {}", .{return_value});
-        try stats_out.print("{f}", .{results});
+        try results.print_table_row(stats_out, name);
     }
 
     // Further optimisations require SIMD, which is only available on the ESP32-S3
@@ -193,43 +204,49 @@ fn run_optimised_functions(stats_out: *std.Io.Writer) linksection(IRAM_ATTR) !vo
 
         idf.rtos.Task.yield();
         {
+            const name = "zig loop @Vector";
+
             log.info("zig loop, @Vector", .{});
             // This function sometimes gives inconsistent results. runAverage() collects min/max/total
             const results, const return_value = try benchmark.FnPure(total.zig_loop_vec).runAverage(REPEAT, .{&numbers});
             log.info("return_value = {}", .{return_value});
-            try stats_out.print("{f}", .{results});
+            try results.print_table_row(stats_out, name);
             if (return_value != EXPECTED) @panic("");
         }
         idf.rtos.Task.yield();
         {
+            const name = "asm vectorised zero-overhead loop";
             log.info("vectorised zero-overhead loop", .{});
             const results, const return_value = try benchmark.FnPure(total.vectorised_0).run(REPEAT, .{&numbers});
             log.info("return_value = {}", .{return_value});
-            try stats_out.print("{f}", .{results});
+            try results.print_table_row(stats_out, name);
             if (return_value != EXPECTED) @panic("");
         }
         idf.rtos.Task.yield();
         {
+            const name = "better vector code";
             log.info("improved vector code", .{});
             const results, const return_value = try benchmark.FnPure(total.vectorised_1).run(REPEAT, .{&numbers});
             log.info("return_value = {}", .{return_value});
-            try stats_out.print("{f}", .{results});
+            try results.print_table_row(stats_out, name);
             if (return_value != EXPECTED) @panic("");
         }
         idf.rtos.Task.yield();
         {
+            const name = "use more vector registers";
             log.info("Use more vector registers", .{});
             // This function sometimes gives inconsistent results. runAverage() collects min/max/total
             const results, const return_value = try benchmark.FnPure(total.vectorised_2).runAverage(REPEAT, .{&numbers});
             log.info("return_value = {}", .{return_value});
-            try stats_out.print("{f}", .{results});
+            try results.print_table_row(stats_out, name);
             if (return_value != EXPECTED) @panic("");
         }
         {
+            const name = "asm vector align loop start";
             log.info("Align zero-copy loop to prevent wasted cycle", .{});
             const results, const return_value = try benchmark.FnPure(total.vectorised_3).run(REPEAT, .{&numbers});
             log.info("return_value = {}", .{return_value});
-            try stats_out.print("{f}", .{results});
+            try results.print_table_row(stats_out, name);
             if (return_value != EXPECTED) @panic("");
         }
     }
