@@ -124,20 +124,6 @@ pub fn benchmark(comptime stat_table: []const Statistic) type {
                     }
                 }
             }
-
-            pub const Difference = struct {
-                r: [stat_table.len]MultipleRunResult.Difference,
-                repeat: u8,
-
-                pub fn format(
-                    self: Difference,
-                    w: *std.Io.Writer,
-                ) std.Io.Writer.Error!void {
-                    for (self.r, stat_table) |difference, stat| {
-                        try apis.print_result_difference(w, stat, difference, self.repeat);
-                    }
-                }
-            };
         };
 
         /// Note: `function` will be executed multiple times!
@@ -465,28 +451,6 @@ const apis = struct {
         try w.print(
             "min/max/avg = {d:9} /{d:9} /{d:9} , select = {d:2}, mask = 0x{x:04}\n",
             .{ result.min, result.max, (result.total / repeat), stat.infer().raw(), stat.raw() },
-        );
-        try w.print(
-            "    {s}.\n",
-            .{get_select_description(stat) catch unreachable},
-        );
-
-        const backing, const len = get_mask_descriptions(stat) catch unreachable;
-        const mask_descriptions = backing[0..len];
-
-        for (mask_descriptions) |desc| {
-            try w.print(
-                "        {s}\n",
-                .{desc},
-            );
-        }
-    }
-
-    // Exactly the same, but can take 'difference' (allows negative)
-    fn print_result_difference(w: *std.Io.Writer, stat: Statistic, result: MultipleRunResult.Difference, repeat: u8) std.Io.Writer.Error!void {
-        try w.print(
-            "min/max/avg = {d:9} /{d:9} /{d:9} , select = {d:2}, mask = 0x{x:04}\n",
-            .{ result.min, result.max, @divTrunc(result.total, repeat), stat.infer().raw(), stat.raw() },
         );
         try w.print(
             "    {s}.\n",
