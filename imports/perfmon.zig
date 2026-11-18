@@ -640,17 +640,19 @@ const Statistic_Full = struct {
         XTPERF_CNT_I_MEM = 8,
         XTPERF_CNT_D_TLB = 9,
         XTPERF_CNT_D_LOAD_U1 = 10,
-        XTPERF_CNT_D_LOAD_U2 = 11,
-        XTPERF_CNT_D_LOAD_U3 = 12,
-        XTPERF_CNT_D_STORE_U1 = 13,
+        XTPERF_CNT_D_STORE_U1 = 11,
+        XTPERF_CNT_D_ACCESS_U1 = 12,
+        XTPERF_CNT_D_LOAD_U2 = 13,
         XTPERF_CNT_D_STORE_U2 = 14,
-        XTPERF_CNT_D_STORE_U3 = 15,
-        XTPERF_CNT_D_ACCESS_U1 = 16,
-        XTPERF_CNT_D_ACCESS_U2 = 17,
+        XTPERF_CNT_D_ACCESS_U2 = 15,
+        XTPERF_CNT_D_LOAD_U3 = 16,
+        XTPERF_CNT_D_STORE_U3 = 17,
         XTPERF_CNT_D_ACCESS_U3 = 18,
+        // gap
         XTPERF_CNT_MULTIPLE_LS = 22,
         XTPERF_CNT_OUTBOUND_PIF = 23,
         XTPERF_CNT_INBOUND_PIF = 24,
+        // gap
         XTPERF_CNT_PREFETCH = 26,
         // TODO: not available on the ESP32, only the ESP32-S2 and ESP32-S3
         // #if XCHAL_HW_VERSION >= 270004
@@ -803,51 +805,7 @@ const Statistic_Full = struct {
                 return @fromBackingInt(@intCast(@backingInt(this) & ~@backingInt(unset)));
             }
         },
-        XTPERF_CNT_D_LOAD_U2: packed struct(u16) {
-            CACHE_HITS: bool = false,
-            CACHE_MISSES: bool = false,
-            LOCAL_MEM: bool = false,
-            BYPASS: bool = false,
-            unused: u12 = 0,
-            const all: @This() = @fromBackingInt(@intCast(0x000F));
-            pub fn except(this: @This(), unset: @This()) @This() {
-                return @fromBackingInt(@intCast(@backingInt(this) & ~@backingInt(unset)));
-            }
-        },
-        XTPERF_CNT_D_LOAD_U3: packed struct(u16) {
-            CACHE_HITS: bool = false,
-            CACHE_MISSES: bool = false,
-            LOCAL_MEM: bool = false,
-            BYPASS: bool = false,
-            unused: u12 = 0,
-            const all: @This() = @fromBackingInt(@intCast(0x000F));
-            pub fn except(this: @This(), unset: @This()) @This() {
-                return @fromBackingInt(@intCast(@backingInt(this) & ~@backingInt(unset)));
-            }
-        },
         XTPERF_CNT_D_STORE_U1: packed struct(u16) {
-            CACHE_HITS: bool = false,
-            CACHE_MISSES: bool = false,
-            LOCAL_MEM: bool = false,
-            PIF: bool = false,
-            unused: u12 = 0,
-            const all: @This() = @fromBackingInt(@intCast(0x000F));
-            pub fn except(this: @This(), unset: @This()) @This() {
-                return @fromBackingInt(@intCast(@backingInt(this) & ~@backingInt(unset)));
-            }
-        },
-        XTPERF_CNT_D_STORE_U2: packed struct(u16) {
-            CACHE_HITS: bool = false,
-            CACHE_MISSES: bool = false,
-            LOCAL_MEM: bool = false,
-            PIF: bool = false,
-            unused: u12 = 0,
-            const all: @This() = @fromBackingInt(@intCast(0x000F));
-            pub fn except(this: @This(), unset: @This()) @This() {
-                return @fromBackingInt(@intCast(@backingInt(this) & ~@backingInt(unset)));
-            }
-        },
-        XTPERF_CNT_D_STORE_U3: packed struct(u16) {
             CACHE_HITS: bool = false,
             CACHE_MISSES: bool = false,
             LOCAL_MEM: bool = false,
@@ -870,6 +828,28 @@ const Statistic_Full = struct {
                 return @fromBackingInt(@intCast(@backingInt(this) & ~@backingInt(unset)));
             }
         },
+        XTPERF_CNT_D_LOAD_U2: packed struct(u16) {
+            CACHE_HITS: bool = false,
+            CACHE_MISSES: bool = false,
+            LOCAL_MEM: bool = false,
+            BYPASS: bool = false,
+            unused: u12 = 0,
+            const all: @This() = @fromBackingInt(@intCast(0x000F));
+            pub fn except(this: @This(), unset: @This()) @This() {
+                return @fromBackingInt(@intCast(@backingInt(this) & ~@backingInt(unset)));
+            }
+        },
+        XTPERF_CNT_D_STORE_U2: packed struct(u16) {
+            CACHE_HITS: bool = false,
+            CACHE_MISSES: bool = false,
+            LOCAL_MEM: bool = false,
+            PIF: bool = false,
+            unused: u12 = 0,
+            const all: @This() = @fromBackingInt(@intCast(0x000F));
+            pub fn except(this: @This(), unset: @This()) @This() {
+                return @fromBackingInt(@intCast(@backingInt(this) & ~@backingInt(unset)));
+            }
+        },
         XTPERF_CNT_D_ACCESS_U2: packed struct(u16) {
             CACHE_MISSES: bool = false,
             HITS_SHARED: bool = false,
@@ -878,6 +858,28 @@ const Statistic_Full = struct {
             unused: u12 = 0,
             const all: @This() = @fromBackingInt(@intCast(0x000F));
             const hits: @This() = @fromBackingInt(@intCast(0x000E));
+            pub fn except(this: @This(), unset: @This()) @This() {
+                return @fromBackingInt(@intCast(@backingInt(this) & ~@backingInt(unset)));
+            }
+        },
+        XTPERF_CNT_D_LOAD_U3: packed struct(u16) {
+            CACHE_HITS: bool = false,
+            CACHE_MISSES: bool = false,
+            LOCAL_MEM: bool = false,
+            BYPASS: bool = false,
+            unused: u12 = 0,
+            const all: @This() = @fromBackingInt(@intCast(0x000F));
+            pub fn except(this: @This(), unset: @This()) @This() {
+                return @fromBackingInt(@intCast(@backingInt(this) & ~@backingInt(unset)));
+            }
+        },
+        XTPERF_CNT_D_STORE_U3: packed struct(u16) {
+            CACHE_HITS: bool = false,
+            CACHE_MISSES: bool = false,
+            LOCAL_MEM: bool = false,
+            PIF: bool = false,
+            unused: u12 = 0,
+            const all: @This() = @fromBackingInt(@intCast(0x000F));
             pub fn except(this: @This(), unset: @This()) @This() {
                 return @fromBackingInt(@intCast(@backingInt(this) & ~@backingInt(unset)));
             }
